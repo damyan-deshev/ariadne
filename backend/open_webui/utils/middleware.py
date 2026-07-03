@@ -209,6 +209,15 @@ OFFSEC_CONSULT_SYSTEM_PROMPT = (
     "When exact syntax, flags, or version-specific behavior becomes the blocker, prefer official or "
     "project/GitHub docs before broad web search."
 )
+CBT_CONSULT_SYSTEM_PROMPT = (
+    "This chat is in CBT mode. Use CBT method rather than generic supportive counseling: agenda setting, "
+    "collaborative empiricism, guided discovery, automatic thoughts, emotions, behaviors, behavioral "
+    "experiments, homework, review, and feedback when relevant. When making detailed CBT method claims or "
+    "designing interventions, prefer CBT corpus evidence first. Do not use the medical corpus as the CBT "
+    "source. For ambiguous self-harm or acute risk, ask direct questions about self-harm, plan, and intent "
+    "before continuing method work. Do not provide medication advice; redirect medication changes to a "
+    "prescriber while offering CBT-compatible support."
+)
 NEWS_CONSULT_SYSTEM_PROMPT = (
     "This chat is in News mode. Use the local News lane first. Start with news_consult to orient around "
     "the relevant local stories. If the user asks for the morning briefing, today's briefing, or everything "
@@ -261,6 +270,11 @@ TOOL_NARRATION_TOOL_PHASES = {
     "local_corpus_view_table": "evidence_gathering",
     "local_corpus_view_figure_metadata": "evidence_gathering",
     "local_corpus_assess_evidence": "evidence_check",
+    "cbt_corpus_shortlist_books": "planning",
+    "cbt_corpus_view_book_cards": "planning",
+    "cbt_corpus_retrieve_evidence": "evidence_gathering",
+    "cbt_corpus_view_table": "evidence_gathering",
+    "cbt_corpus_view_figure_metadata": "evidence_gathering",
     "web_research_strong": "evidence_gathering",
     "search_strong_sources": "evidence_gathering",
     "query_web_evidence": "evidence_gathering",
@@ -324,6 +338,13 @@ DEFAULT_SELECTOR_OFFSEC_TERMINAL_GUIDANCE = (
     "When terminal tools are available, keep the terminal as the primary execution lane "
     "and use the Offsec corpus as a sparing consult layer."
 )
+DEFAULT_SELECTOR_CBT_GUIDANCE = (
+    "In CBT mode, use CBT corpus tools for detailed CBT method, formulation, behavioral "
+    "experiment, homework, alliance, relapse, or safety-boundary grounding. Start with "
+    "cbt_corpus_shortlist_books, then retrieve source-close evidence from selected books. "
+    "For ambiguous self-harm or acute risk, ask direct safety questions first; retrieval is "
+    "not a substitute for immediate risk boundaries."
+)
 DEFAULT_SELECTOR_NEWS_GUIDANCE = (
     "In News mode, start with news_consult to orient around the relevant local stories. "
     "Prefer article-grounded retrieval with news_retrieve_articles before broader timeline "
@@ -344,6 +365,8 @@ DEFAULT_SELECTOR_RETRIEVAL_TOOL_NAMES = {
     "news_retrieve_timeline",
     "offsec_consult",
     "offsec_retrieve_evidence",
+    "cbt_corpus_shortlist_books",
+    "cbt_corpus_retrieve_evidence",
     "medical_corpus_sufficiency",
     "local_corpus_frame_problem",
     "local_corpus_plan_axes",
@@ -382,6 +405,14 @@ DEFAULT_SELECTOR_NEWS_TOOL_NAMES = {
     "news_view_articles",
 }
 
+DEFAULT_SELECTOR_CBT_TOOL_NAMES = {
+    "cbt_corpus_shortlist_books",
+    "cbt_corpus_view_book_cards",
+    "cbt_corpus_retrieve_evidence",
+    "cbt_corpus_view_table",
+    "cbt_corpus_view_figure_metadata",
+}
+
 DEFAULT_SELECTOR_MEDICAL_TOOL_NAMES = {
     "medical_corpus_sufficiency",
     "local_corpus_list_domains",
@@ -395,6 +426,11 @@ DEFAULT_SELECTOR_MEDICAL_TOOL_NAMES = {
     "local_corpus_retrieve_evidence",
     "local_corpus_view_table",
     "local_corpus_view_figure_metadata",
+    "cbt_corpus_shortlist_books",
+    "cbt_corpus_view_book_cards",
+    "cbt_corpus_retrieve_evidence",
+    "cbt_corpus_view_table",
+    "cbt_corpus_view_figure_metadata",
 }
 
 DEFAULT_SELECTOR_SCHOLARLY_TOOL_NAMES = {
@@ -592,6 +628,12 @@ def _build_default_selector_guidance(
         if _selector_has_any_tool(tools, DEFAULT_SELECTOR_TERMINAL_TOOL_NAMES):
             clauses.append(DEFAULT_SELECTOR_OFFSEC_TERMINAL_GUIDANCE)
     elif (
+        working_mode == "cbt"
+        and local_corpus_mode != "off"
+        and _selector_has_any_tool(tools, DEFAULT_SELECTOR_CBT_TOOL_NAMES)
+    ):
+        clauses.append(DEFAULT_SELECTOR_CBT_GUIDANCE)
+    elif (
         working_mode == "news"
         and _selector_has_any_tool(tools, DEFAULT_SELECTOR_NEWS_TOOL_NAMES)
     ):
@@ -698,6 +740,11 @@ def _should_enable_shared_tool_narration(
         and local_corpus_mode != "off"
         and corpus_runtime.offsec_enabled
     )
+    cbt_enabled = (
+        working_mode == "cbt"
+        and local_corpus_mode != "off"
+        and corpus_runtime.cbt_enabled
+    )
     news_enabled = working_mode == "news" and corpus_runtime.news_enabled
     focused_search_enabled = bool(features.get("focused_search"))
     return bool(
@@ -705,6 +752,7 @@ def _should_enable_shared_tool_narration(
         or general_local_corpus_enabled
         or general_science_enabled
         or offsec_enabled
+        or cbt_enabled
         or news_enabled
         or focused_search_enabled
     )
@@ -728,6 +776,11 @@ def _initialize_tool_narration_state(
         and normalize_local_corpus_mode(params.get("local_corpus_mode")) != "off"
         and corpus_runtime.offsec_enabled
     )
+    cbt_mode = (
+        working_mode == "cbt"
+        and normalize_local_corpus_mode(params.get("local_corpus_mode")) != "off"
+        and corpus_runtime.cbt_enabled
+    )
     news_mode = working_mode == "news" and corpus_runtime.news_enabled
     focused_search_enabled = bool(features.get("focused_search"))
     return {
@@ -739,6 +792,7 @@ def _initialize_tool_narration_state(
                 or general_local_corpus_mode
                 or general_science_mode
                 or offsec_mode
+                or cbt_mode
                 or news_mode
             )
             else None
@@ -751,6 +805,7 @@ def _initialize_tool_narration_state(
                 or general_local_corpus_mode
                 or general_science_mode
                 or offsec_mode
+                or cbt_mode
                 or news_mode
             )
             else 0
@@ -761,6 +816,7 @@ def _initialize_tool_narration_state(
             or general_local_corpus_mode
             or general_science_mode
             or offsec_mode
+            or cbt_mode
             or news_mode
             or focused_search_enabled
         ),
@@ -6145,6 +6201,21 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         if OFFSEC_CONSULT_SYSTEM_PROMPT not in str(current_content):
             form_data["messages"] = add_or_update_system_message(
                 OFFSEC_CONSULT_SYSTEM_PROMPT,
+                form_data["messages"],
+                append=True,
+            )
+
+    if (
+        working_mode == "cbt"
+        and local_corpus_mode != "off"
+        and metadata.get("params", {}).get("function_calling") == "native"
+        and corpus_runtime.cbt_enabled
+    ):
+        current_system = get_system_message(form_data.get("messages", []))
+        current_content = current_system.get("content", "") if current_system else ""
+        if CBT_CONSULT_SYSTEM_PROMPT not in str(current_content):
+            form_data["messages"] = add_or_update_system_message(
+                CBT_CONSULT_SYSTEM_PROMPT,
                 form_data["messages"],
                 append=True,
             )

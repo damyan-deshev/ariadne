@@ -33,6 +33,7 @@ from open_webui.retrieval.local_corpus_reasoning import (
     collect_local_corpus_axis_evidence,
     assess_local_corpus_evidence,
 )
+from open_webui.retrieval.corpus_runtime import resolve_corpus_runtime
 from open_webui.retrieval.medical_lane import assess_medical_corpus_sufficiency
 from open_webui.retrieval.offsec_corpus import (
     consult_offsec_corpus,
@@ -976,6 +977,181 @@ async def local_corpus_assess_evidence(
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         log.exception(f"local_corpus_assess_evidence error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+def _resolve_cbt_corpus_root_for_tool(
+    __request__: Request = None,
+    __metadata__: dict = None,
+):
+    if __request__ is None:
+        return None
+    params = ((__metadata__ or {}).get("params") or {})
+    runtime = resolve_corpus_runtime(__request__.app.state.config, params)
+    return runtime.cbt_root if runtime.cbt_enabled else None
+
+
+async def cbt_corpus_shortlist_books(
+    query: str,
+    max_books: int = 5,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Shortlist the most relevant CBT corpus books for a therapy-method question.
+    Use this before retrieving CBT evidence for formulations, automatic thoughts,
+    behavioral experiments, homework, alliance repair, or relapse planning.
+
+    :param query: The user's CBT method or therapy-process question
+    :param max_books: Maximum number of CBT books to shortlist, capped at 5
+    """
+    cbt_root = _resolve_cbt_corpus_root_for_tool(__request__, __metadata__)
+    if cbt_root is None:
+        return json.dumps({"error": "CBT corpus is not available for this chat"})
+
+    try:
+        payload = await asyncio.to_thread(
+            shortlist_local_corpus_books,
+            query=query,
+            domain="cbt",
+            disciplines=None,
+            max_books=max_books,
+            config_or_path=cbt_root,
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f"cbt_corpus_shortlist_books error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def cbt_corpus_view_book_cards(
+    book_ids: list[str],
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Open CBT corpus book cards for shortlisted books.
+    Use this after cbt_corpus_shortlist_books to decide which 1-3 books should
+    anchor evidence retrieval.
+
+    :param book_ids: One or more CBT book ids returned by cbt_corpus_shortlist_books
+    """
+    cbt_root = _resolve_cbt_corpus_root_for_tool(__request__, __metadata__)
+    if cbt_root is None:
+        return json.dumps({"error": "CBT corpus is not available for this chat"})
+
+    try:
+        payload = await asyncio.to_thread(
+            view_local_corpus_book_cards,
+            book_ids=book_ids,
+            config_or_path=cbt_root,
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f"cbt_corpus_view_book_cards error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def cbt_corpus_retrieve_evidence(
+    query: str,
+    book_ids: list[str],
+    top_k: int = 8,
+    include_related_tables: bool = True,
+    include_related_figures: bool = False,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Retrieve CBT corpus evidence chunks from selected CBT books.
+    Use this after shortlisting and book-card review, and keep the query focused
+    on the CBT concept, intervention, process issue, or safety boundary.
+
+    :param query: The focused CBT retrieval need
+    :param book_ids: Selected CBT book ids
+    :param top_k: Maximum number of evidence chunks to return
+    :param include_related_tables: Include nearby table pointers in results
+    :param include_related_figures: Include nearby figure metadata pointers
+    """
+    cbt_root = _resolve_cbt_corpus_root_for_tool(__request__, __metadata__)
+    if cbt_root is None:
+        return json.dumps({"error": "CBT corpus is not available for this chat"})
+
+    try:
+        payload = await asyncio.to_thread(
+            retrieve_local_corpus_evidence,
+            query=query,
+            book_ids=book_ids,
+            top_k=top_k,
+            include_related_tables=include_related_tables,
+            include_related_figures=include_related_figures,
+            config_or_path=cbt_root,
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f"cbt_corpus_retrieve_evidence error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def cbt_corpus_view_table(
+    book_id: str,
+    table_id: str,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Open a CBT corpus table sidecar when evidence points to a structured table.
+
+    :param book_id: The CBT book that owns the table
+    :param table_id: The table id returned from evidence results
+    """
+    cbt_root = _resolve_cbt_corpus_root_for_tool(__request__, __metadata__)
+    if cbt_root is None:
+        return json.dumps({"error": "CBT corpus is not available for this chat"})
+
+    try:
+        payload = await asyncio.to_thread(
+            view_local_corpus_table,
+            book_id=book_id,
+            table_id=table_id,
+            config_or_path=cbt_root,
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f"cbt_corpus_view_table error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def cbt_corpus_view_figure_metadata(
+    book_id: str,
+    figure_id: str,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    View CBT corpus figure metadata without loading image bytes.
+
+    :param book_id: The CBT book that owns the figure
+    :param figure_id: The figure id returned from evidence results
+    """
+    cbt_root = _resolve_cbt_corpus_root_for_tool(__request__, __metadata__)
+    if cbt_root is None:
+        return json.dumps({"error": "CBT corpus is not available for this chat"})
+
+    try:
+        payload = await asyncio.to_thread(
+            view_local_corpus_figure_metadata,
+            book_id=book_id,
+            figure_id=figure_id,
+            config_or_path=cbt_root,
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f"cbt_corpus_view_figure_metadata error: {e}")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 

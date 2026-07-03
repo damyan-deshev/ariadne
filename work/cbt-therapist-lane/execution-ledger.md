@@ -31,8 +31,8 @@ Last updated: 2026-07-03
 | S4 | Copy CBT corpus to separate Strix root | completed | Requires S2 evidence and S3 commit | `rsync` transferred 1,275 regular files to `/home/deshev/open-webui/cbt_corpus` |
 | S5 | Verify CBT corpus on Strix | completed | Requires S4 copy | Remote catalog has 6 CBT rows, no missing required fields, no absolute path values, 0 missing selected retrieval files, and medical root has no CBT domain |
 | S6 | Add Ariadne backend CBT corpus root, working mode, and persona runtime defaults | completed | Requires corpus shape to be known and verified | `CBT_CORPUS_ROOT`, `working_mode=cbt`, `cbt_root`, and persona `runtime_defaults`; 12 targeted tests passed |
-| S7 | Add CBT tool and middleware wiring | in_progress | Requires S6 runtime selection | Pending |
-| S8 | Add frontend CBT working-mode surface and persona-selected corpus reflection | pending | Requires backend mode contract | Pending |
+| S7 | Add CBT tool and middleware wiring | completed | Requires S6 runtime selection | CBT-specific wrappers, tool injection, selector guidance, native prompt, narration phases; 12 targeted tests passed |
+| S8 | Add frontend CBT working-mode surface and persona-selected corpus reflection | in_progress | Requires backend mode contract | Pending |
 | S9 | Seed CBT therapist persona | pending | Requires CBT working mode and model binding path | Pending |
 | S10 | Add focused tests and CBT smoke eval | pending | Requires backend/frontend/persona implementation | Pending |
 
@@ -50,10 +50,12 @@ Last updated: 2026-07-03
 - S5: Verified the remote CBT corpus on Strix.
 - S6: Added backend CBT runtime selection and a persona runtime defaults
   primitive.
+- S7: Added CBT-specific corpus tools and middleware guidance.
 
 ## In Progress
 
-- S7: Add CBT tool and middleware wiring.
+- S8: Add frontend CBT working-mode surface and persona-selected corpus
+  reflection.
 
 ## Blocked
 
@@ -61,11 +63,11 @@ Last updated: 2026-07-03
 
 ## Next
 
-Complete S7.
+Complete S8.
 
-S7 is current because Ariadne can now resolve the CBT runtime, but chat
-middleware and built-in tool availability do not yet expose CBT retrieval to
-the model.
+S8 is current because the backend can now resolve and expose CBT tooling, but
+the chat UI still needs to show CBT when a persona selects it through runtime
+defaults.
 
 S8 must also reflect persona-selected runtime/corpus defaults in the UI so the
 chat controls do not still appear to be in General mode after a CBT persona is

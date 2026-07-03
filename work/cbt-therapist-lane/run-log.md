@@ -233,3 +233,45 @@ Verification:
 Next:
 
 - Add CBT tool and middleware wiring.
+
+## 2026-07-03 - S7 Completed
+
+Added CBT tool and middleware wiring.
+
+Changes:
+
+- Added CBT-specific built-in wrappers:
+  - `cbt_corpus_shortlist_books`
+  - `cbt_corpus_view_book_cards`
+  - `cbt_corpus_retrieve_evidence`
+  - `cbt_corpus_view_table`
+  - `cbt_corpus_view_figure_metadata`
+- CBT wrappers resolve `corpus_runtime.cbt_root` and pass that path into the
+  generic local corpus engine, so CBT retrieval does not hit
+  `LOCAL_CORPUS_ROOT`.
+- Added CBT tool injection for `corpus_runtime.cbt_enabled`.
+- Added CBT default selector guidance.
+- Added CBT native system prompt injection.
+- Added CBT tools to shared tool narration phases.
+
+Verification:
+
+- Compile check exited 0:
+  `.venv.py312.news-tests/bin/python -m py_compile backend/open_webui/tools/builtin.py backend/open_webui/utils/tools.py backend/open_webui/utils/middleware.py backend/open_webui/retrieval/corpus_runtime.py`
+- Targeted tests exited 0:
+  `.venv.py312.news-tests/bin/python -m pytest -q backend/open_webui/test/util/test_lane_runtime.py backend/open_webui/test/util/test_local_corpus_tools.py::test_builtin_cbt_corpus_tools_use_cbt_root backend/open_webui/test/util/test_chat_response_middleware.py::test_build_default_selector_guidance_adds_cbt_corpus_rules backend/open_webui/test/util/test_chat_response_middleware.py::test_should_enable_shared_tool_narration_for_cbt_mode`
+- Test result: `12 passed, 3 warnings`.
+- `git diff --check` exited 0.
+
+Known test harness note:
+
+- `backend/open_webui/test/util/conftest.py` may stub
+  `open_webui.utils.tools.get_builtin_tools` to `{}` when optional import
+  dependencies are unavailable, so this slice verifies CBT wrappers and
+  middleware directly rather than relying on the existing tool-availability
+  tests in that lightweight harness.
+
+Next:
+
+- Add frontend `cbt` working mode and reflect persona-selected runtime/corpus
+  defaults in the chat controls.

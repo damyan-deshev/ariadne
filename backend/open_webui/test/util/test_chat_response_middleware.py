@@ -18,6 +18,7 @@ def _build_request(
     *,
     enable_local_corpus: bool = False,
     local_corpus_root: str | None = None,
+    cbt_corpus_root: str | None = None,
     offsec_corpus_root: str | None = None,
     enable_same_turn_tool_output_compaction: bool = False,
 ):
@@ -28,6 +29,7 @@ def _build_request(
                     ENABLE_LOCAL_CORPUS_TOOLS=enable_local_corpus,
                     ENABLE_SAME_TURN_TOOL_OUTPUT_COMPACTION=enable_same_turn_tool_output_compaction,
                     LOCAL_CORPUS_ROOT=local_corpus_root,
+                    CBT_CORPUS_ROOT=cbt_corpus_root,
                     OFFSEC_CORPUS_ROOT=offsec_corpus_root,
                     TASK_MODEL="",
                     TASK_MODEL_EXTERNAL=False,
@@ -602,6 +604,26 @@ def test_build_default_selector_guidance_adds_offsec_consult_rules():
     assert "project/GitHub docs before broad web search" in guidance
 
 
+def test_build_default_selector_guidance_adds_cbt_corpus_rules():
+    metadata = {
+        "params": {
+            "function_calling": "default",
+            "working_mode": "cbt",
+            "local_corpus_mode": "prefer",
+        },
+        "features": {},
+    }
+    tools = {
+        "cbt_corpus_shortlist_books": {},
+        "cbt_corpus_retrieve_evidence": {},
+    }
+
+    guidance = middleware._build_default_selector_guidance(metadata, tools, [])
+
+    assert "Start with cbt_corpus_shortlist_books" in guidance
+    assert "ambiguous self-harm or acute risk" in guidance
+
+
 def test_should_enable_shared_tool_narration_for_local_corpus_prefer():
     request = _build_request(enable_local_corpus=True, local_corpus_root="/tmp")
     metadata = {"params": {"function_calling": "native", "local_corpus_mode": "prefer"}}
@@ -621,6 +643,25 @@ def test_should_enable_shared_tool_narration_for_offsec_mode():
         "params": {
             "function_calling": "native",
             "working_mode": "offsec",
+            "local_corpus_mode": "prefer",
+        }
+    }
+
+    assert (
+        middleware._should_enable_shared_tool_narration(request, metadata, {})
+        is True
+    )
+
+
+def test_should_enable_shared_tool_narration_for_cbt_mode():
+    request = _build_request(
+        enable_local_corpus=True,
+        cbt_corpus_root="/tmp",
+    )
+    metadata = {
+        "params": {
+            "function_calling": "native",
+            "working_mode": "cbt",
             "local_corpus_mode": "prefer",
         }
     }

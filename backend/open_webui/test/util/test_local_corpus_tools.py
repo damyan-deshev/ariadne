@@ -479,6 +479,94 @@ Empirical therapy for community-acquired lung abscess can include co-amoxiclav.
     return root
 
 
+def _mini_cbt_corpus(root: Path) -> Path:
+    _write(
+        root / "_serving" / "domains" / "index.md",
+        """# Local Corpus Index
+
+- cbt: 1 usable CBT book
+""",
+    )
+    _write(
+        root / "_serving" / "domains" / "cbt" / "index.md",
+        """# CBT Local Index
+
+- cognitive_behavioral_therapy: 1 source; automatic thoughts and behavioral experiments.
+""",
+    )
+    _write(
+        root / "_serving" / "domains" / "cbt" / "books" / "cbt-guide.md",
+        """# CBT practice guide
+
+What this is:
+Manual for automatic thoughts and behavioral experiments.
+""",
+    )
+    serving_row = {
+        "book_id": "cbt-guide",
+        "domain": "cbt",
+        "primary_discipline": "cognitive_behavioral_therapy",
+        "title": "CBT practice guide",
+        "resource_type": "manual",
+        "evidence_tier": "clinical_manual",
+        "authority_or_publisher": "Test Press",
+        "year": 2024,
+        "document_dir": "cbt-guide-doc",
+        "selected_dir": "cbt-guide-doc/selected",
+        "parse_status": "success",
+        "quarantine_reason": None,
+        "secondary_tags": ["automatic thoughts"],
+        "coverage_phrases": [
+            "automatic thoughts",
+            "behavioral experiments",
+            "homework",
+        ],
+        "negative_scope": ["medication advice"],
+        "clean_toc": ["Automatic thoughts", "Behavioral experiments"],
+        "what_this_is": "Manual for automatic thoughts and behavioral experiments.",
+        "table_count": 0,
+        "figure_count": 0,
+        "review_flags": [],
+    }
+    _write(
+        root / "_serving" / "serving-catalog.jsonl",
+        json.dumps(serving_row, ensure_ascii=False) + "\n",
+    )
+    _write(
+        root / "cbt-guide-doc" / "selected" / "retrieval.md",
+        """# Document Metadata
+
+## Page 1
+Section path: Automatic thoughts
+
+## Automatic thoughts
+
+Automatic thoughts can be elicited by asking what went through the client's mind in a specific situation.
+
+## Page 2
+Section path: Behavioral experiments
+
+## Behavioral experiments
+
+Behavioral experiments test predictions collaboratively and review what was learned.
+""",
+    )
+    _write(
+        root / "cbt-guide-doc" / "selected" / "catalog.json",
+        json.dumps(
+            {
+                "pages": [
+                    {"page_no": 1, "heading_path": ["Automatic thoughts"], "table_count": 0},
+                    {"page_no": 2, "heading_path": ["Behavioral experiments"], "table_count": 0},
+                ]
+            }
+        ),
+    )
+    _write(root / "cbt-guide-doc" / "selected" / "figures.json", "[]")
+    _write(root / "cbt-guide-doc" / "selected" / "document.json", json.dumps({"tables": []}))
+    return root
+
+
 @pytest.fixture
 def local_corpus_fixture(tmp_path, monkeypatch):
     corpus_root = _mini_corpus(tmp_path / "literature_corpus")
@@ -505,10 +593,32 @@ def cap_corpus_fixture(tmp_path, monkeypatch):
     local_corpus_reasoning.clear_local_corpus_reasoning_caches()
 
 
+@pytest.fixture
+def cbt_corpus_fixture(tmp_path, monkeypatch):
+    corpus_root = _mini_cbt_corpus(tmp_path / "cbt_corpus")
+    index_dir = tmp_path / "backend-data" / "local_corpus"
+    monkeypatch.setattr(local_corpus, "LOCAL_CORPUS_INDEX_DIR", index_dir)
+    local_corpus.clear_local_corpus_caches()
+    local_corpus_reasoning.clear_local_corpus_reasoning_caches()
+    yield corpus_root
+    local_corpus.clear_local_corpus_caches()
+    local_corpus_reasoning.clear_local_corpus_reasoning_caches()
+
+
 def _request_for_corpus(corpus_root: Path) -> SimpleNamespace:
     config = SimpleNamespace(
         LOCAL_CORPUS_ROOT=str(corpus_root),
         ENABLE_LOCAL_CORPUS_TOOLS=True,
+    )
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
+
+
+def _request_for_cbt_corpus(corpus_root: Path) -> SimpleNamespace:
+    config = SimpleNamespace(
+        LOCAL_CORPUS_ROOT="/tmp/not-the-cbt-corpus",
+        CBT_CORPUS_ROOT=str(corpus_root),
+        ENABLE_LOCAL_CORPUS_TOOLS=True,
+        NEWS_ENABLED=False,
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
 
@@ -920,6 +1030,33 @@ async def test_builtin_local_corpus_tools_use_request_config(local_corpus_fixtur
     assert shortlist_payload["items"][0]["domain"] == "chemistry"
     assert evidence_payload["status"] == "ok"
     assert evidence_payload["items"][0]["domain"] == "medicine"
+
+
+@pytest.mark.asyncio
+async def test_builtin_cbt_corpus_tools_use_cbt_root(cbt_corpus_fixture):
+    request = _request_for_cbt_corpus(cbt_corpus_fixture)
+    metadata = {"params": {"working_mode": "cbt", "local_corpus_mode": "prefer"}}
+
+    shortlist_output = await builtin_tools.cbt_corpus_shortlist_books(
+        query="automatic thoughts and behavioral experiments",
+        __request__=request,
+        __metadata__=metadata,
+    )
+    evidence_output = await builtin_tools.cbt_corpus_retrieve_evidence(
+        query="How should automatic thoughts be elicited?",
+        book_ids=["cbt-guide"],
+        __request__=request,
+        __metadata__=metadata,
+    )
+
+    shortlist_payload = json.loads(shortlist_output)
+    evidence_payload = json.loads(evidence_output)
+
+    assert shortlist_payload["status"] == "ok"
+    assert shortlist_payload["items"][0]["domain"] == "cbt"
+    assert shortlist_payload["items"][0]["book_id"] == "cbt-guide"
+    assert evidence_payload["status"] == "ok"
+    assert evidence_payload["items"][0]["domain"] == "cbt"
 
 
 @pytest.mark.asyncio

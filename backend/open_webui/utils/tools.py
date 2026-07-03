@@ -63,6 +63,11 @@ from open_webui.tools.builtin import (
     news_view_articles,
     offsec_consult,
     offsec_retrieve_evidence,
+    cbt_corpus_shortlist_books,
+    cbt_corpus_view_book_cards,
+    cbt_corpus_retrieve_evidence,
+    cbt_corpus_view_table,
+    cbt_corpus_view_figure_metadata,
     local_corpus_list_domains,
     local_corpus_list_disciplines,
     local_corpus_frame_problem,
@@ -602,6 +607,17 @@ def get_builtin_tools(
             [
                 offsec_consult,
                 offsec_retrieve_evidence,
+            ]
+        )
+
+    if is_builtin_tool_enabled("local_corpus") and corpus_runtime.cbt_enabled:
+        builtin_functions.extend(
+            [
+                cbt_corpus_shortlist_books,
+                cbt_corpus_view_book_cards,
+                cbt_corpus_retrieve_evidence,
+                cbt_corpus_view_table,
+                cbt_corpus_view_figure_metadata,
             ]
         )
 
