@@ -371,3 +371,119 @@ Verification:
 Next:
 
 - Commit and push S9, then start S10 focused CBT smoke checks.
+
+## 2026-07-03 - S10 Completed
+
+Ran focused CBT lane checks locally and on Strix, then restarted Ariadne so the
+seeded persona and UI changes are live.
+
+Local verification before Strix deploy:
+
+- `git status --short` was clean after commit `de001ddcf`.
+- `de001ddcf` was pushed to `origin/main`.
+- Strix skill instructions were loaded before remote/model operations.
+- Strix SSH probe succeeded:
+  - host: `dcvbnm.localdomain`
+  - user: `deshev`
+  - kernel: `Linux ... 7.0.4-100.fc43.x86_64`
+- Strix services/listeners:
+  - llama.cpp server listening on `0.0.0.0:1234`
+  - Ariadne/Open WebUI uvicorn listening on `0.0.0.0:8080`
+
+Strix deploy:
+
+- Remote repo `/home/deshev/open-webui` was dirty before deploy:
+  - existing local `scripts/llama_patch/*` modifications
+  - existing news corpus directories
+  - CBT corpus directory
+- `git merge --ff-only` from the committed GitHub branch was attempted but
+  correctly aborted because the remote dirty `scripts/llama_patch` file would
+  be overwritten.
+- To avoid destructive git operations, deployed only a whitelist of
+  CBT-relevant committed files with `rsync`.
+- The whitelist included backend CBT runtime/tool/persona files, frontend chat
+  persona UI files, tests, `.gitignore`, the CBT builder, and execution docs.
+- The whitelist did not include CBT literature payload, `_serving`, retrieval
+  text, or compiled corpus directories.
+- After copying `.gitignore`, `git check-ignore cbt_corpus` on Strix reported
+  `cbt_corpus_ignored`.
+
+Remote code and corpus checks:
+
+- Remote compile check exited 0:
+  `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile backend/open_webui/utils/personas.py backend/open_webui/config.py backend/open_webui/main.py backend/open_webui/retrieval/corpus_runtime.py backend/open_webui/retrieval/working_mode.py backend/open_webui/tools/builtin.py backend/open_webui/utils/tools.py backend/open_webui/utils/middleware.py backend/open_webui/test/util/test_cbt_lane.py`
+- Remote CBT serving catalog exists:
+  `/home/deshev/open-webui/cbt_corpus/_serving/serving-catalog.jsonl`
+- Remote CBT catalog row count: `6`.
+- Remote CBT wrapper smoke using the live backend venv and scratch `DATA_DIR`
+  returned:
+  - `shortlist_status=ok`
+  - `shortlist_count=3`
+  - `shortlist_domains=["cbt"]`
+  - `retrieval_status=ok`
+  - `retrieval_count=3`
+  - root exists: `true`
+
+Restart/live verification:
+
+- Restart command exited 0:
+  `FRONTEND_BUILD_ON_START=1 ALLOW_STALE_FRONTEND_ON_BUILD_FAIL=1 ./pull_and_run.sh restart`
+- Frontend build completed; output contained existing Svelte warnings but did
+  not fail.
+- Backend restarted with PID `461156`.
+- Live health endpoint returned `{"status": true}`.
+- Production DB check showed the seeded persona:
+  - id: `system-cbt-therapist-40ae707d-87c5-42ed-bff5-1a38e9d86acc`
+  - name: `CBT Therapist`
+  - bound model: `Qwen3.6-27B-MTP-Q6_K`
+  - `runtime_defaults.working_mode=cbt`
+  - `runtime_defaults.local_corpus_mode=prefer`
+  - `runtime_defaults.temperature=0.7`
+  - `runtime_defaults.chat_template_kwargs.enable_thinking=0`
+
+Strix model smoke:
+
+- Raw llama.cpp OpenAI-compatible request used model
+  `Qwen3.6-27B-MTP-Q6_K` with:
+  - `temperature=0.7`
+  - `top_p=0.8`
+  - `top_k=20`
+  - `min_p=0.0`
+  - `presence_penalty=1.5`
+  - `repeat_penalty=1.0`
+  - `chat_template_kwargs={"enable_thinking": false}`
+- Response:
+  - model: `Qwen3.6-27B-MTP-Q6_K`
+  - finish reason: `stop`
+  - no `<think>` or `</think>` tag in content
+  - prompt tokens: `98`
+  - completion tokens: `39`
+  - generation speed: about `17.09 tok/s`
+  - MTP counters: `draft_n=34`, `draft_n_accepted=21`
+- `/slots` after the request confirmed:
+  - loaded model: `Qwen3.6-27B-MTP-Q6_K`
+  - `speculative=true`
+  - `temperature=0.699999988079071`
+  - `top_p=0.800000011920929`
+  - `top_k=20`
+  - `min_p=0.0`
+  - `presence_penalty=1.5`
+  - `repeat_penalty=1.0`
+  - `speculative.type=mtp`
+
+Known residual state:
+
+- Remote `/home/deshev/open-webui` remains dirty because it already had local
+  `scripts/llama_patch` modifications and news corpus directories. These were
+  intentionally not reverted.
+- Because the remote tree could not be fast-forwarded safely, runtime files were
+  deployed with a narrow `rsync` whitelist after the matching local commits were
+  pushed.
+- Full local `npm run check` remains blocked by pre-existing unrelated
+  TypeScript/Svelte errors, recorded in S8.
+
+Next:
+
+- Start product hardening: CBT diary/homework/thought-record tooling,
+  first-session UX, live-lane eval cases, and a cleaner Strix deployment
+  strategy for dirty working trees.

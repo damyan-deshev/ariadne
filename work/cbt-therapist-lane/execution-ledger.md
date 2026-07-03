@@ -34,7 +34,7 @@ Last updated: 2026-07-03
 | S7 | Add CBT tool and middleware wiring | completed | Requires S6 runtime selection | CBT-specific wrappers, tool injection, selector guidance, native prompt, narration phases; 12 targeted tests passed |
 | S8 | Add frontend CBT working-mode surface and persona-selected corpus reflection | completed | Requires backend mode contract | Frontend accepts `working_mode=cbt`, applies persona runtime defaults into chat params once per persona/default set, shows CBT in the working-mode control, and focused Vitest/format/diff checks passed |
 | S9 | Seed CBT therapist persona | completed | Requires CBT working mode and model binding path | CBT Therapist persona seeds for admins, binds to `Qwen3.6-27B-MTP-Q6_K`, defaults to `working_mode=cbt` and `local_corpus_mode=prefer`, and applies Qwen vendor non-thinking sampling defaults without overriding explicit chat params |
-| S10 | Add focused tests and CBT smoke eval | pending | Requires backend/frontend/persona implementation | Pending |
+| S10 | Add focused tests and CBT smoke eval | completed | Requires backend/frontend/persona implementation | Local and remote targeted tests passed; Strix code whitelist was deployed after commit; Open WebUI restarted; live health OK; CBT persona exists in DB with Q6/CBT defaults; remote CBT corpus wrappers returned 3 shortlist items and 3 retrieval chunks; Q6 no-thinking model smoke returned no `<think>` tags and MTP counters |
 
 ## Completed
 
@@ -55,6 +55,9 @@ Last updated: 2026-07-03
   runtime/corpus defaults in chat params.
 - S9: Added CBT Therapist persona seeding, model binding config, and
   persona-level non-thinking sampling defaults.
+- S10: Ran focused local/remote tests, deployed the committed CBT whitelist to
+  Strix, restarted Ariadne, verified live persona seeding, remote CBT corpus
+  wrappers, and Q6 no-thinking model smoke.
 
 ## In Progress
 
@@ -66,8 +69,8 @@ Last updated: 2026-07-03
 
 ## Next
 
-Start S10.
+All planned bootstrap slices are complete.
 
-S10 should run the focused end-to-end CBT checks: backend/frontend tests,
-corpus-tool smoke through the CBT lane, and a small Strix model smoke using the
-seeded persona defaults.
+Next work should move to product hardening: first-session UX, diary/homework and
+thought-record tools, stronger CBT eval packs for the live lane, and a cleaner
+deployment path for the dirty Strix working tree.
