@@ -13,6 +13,8 @@ backend/models/
 !.env.example
 # Proprietary local corpus must never be committed from this repo.
 /literature_corpus*/
+/cbt_corpus*/
+/_compiled_docling_review/
 /scripts/models.ini
 /scripts/run_llama.sh
 vite.config.js.timestamp-*
