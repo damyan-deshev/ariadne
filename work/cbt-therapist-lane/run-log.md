@@ -275,3 +275,39 @@ Next:
 
 - Add frontend `cbt` working mode and reflect persona-selected runtime/corpus
   defaults in the chat controls.
+
+## 2026-07-03 - S8 Completed
+
+Added frontend CBT working-mode surface and persona-selected runtime/corpus
+reflection.
+
+Changes:
+
+- Added `cbt` to the chat working-mode union and selector options.
+- Added a visible `CBT` working-mode control state in `MessageInput`.
+- Added frontend persona runtime-default extraction for:
+  `working_mode`, `local_corpus_mode`, `science_research_mode`, and
+  `science_attached_corpora`.
+- Applied persona runtime defaults once per persona/default set in
+  `Chat.svelte`, so selecting a CBT persona can move the visible chat controls
+  to `CBT` and set `local_corpus_mode=prefer`.
+- Kept legacy `preferred_working_mode` and `preferred_local_corpus_mode`
+  compatibility.
+- Added Vitest coverage for the frontend runtime-default extraction.
+
+Verification:
+
+- Targeted Vitest exited 0:
+  `npm exec -- vitest run src/lib/utils/personas.test.ts`
+- Test result: `1 passed`, `2 tests`.
+- Format check exited 0:
+  `npm exec -- prettier --check src/lib/apis/personas/index.ts src/lib/utils/personas.ts src/lib/utils/personas.test.ts src/lib/components/chat/Chat.svelte src/lib/components/chat/MessageInput.svelte src/lib/components/chat/Placeholder.svelte`
+- `git diff --check` exited 0.
+- Full `npm run check` was attempted and remains blocked by pre-existing,
+  unrelated Svelte/TypeScript errors outside this slice, including
+  `src/routes/auth/+page.svelte` i18n store typing errors and
+  `src/routes/s/[id]/+page.svelte` implicit-any errors.
+
+Next:
+
+- Seed the CBT therapist persona with CBT runtime defaults and model binding.

@@ -2,6 +2,12 @@ import type { Persona } from '$lib/apis/personas';
 import type { Model } from '$lib/stores';
 
 export const PERSONA_DIRECT_MODEL_ID = '__direct_model__';
+export const PERSONA_RUNTIME_DEFAULT_KEYS = new Set([
+	'working_mode',
+	'local_corpus_mode',
+	'science_research_mode',
+	'science_attached_corpora'
+]);
 
 export const buildPersonaDefaultsSnapshot = (persona: Persona) => ({
 	bound_model_id: persona.bound_model_id ?? null,
@@ -35,6 +41,74 @@ export const getRequestedFeatureIdsFromFeatures = (features: Record<string, bool
 	Object.entries(features)
 		.filter(([, enabled]) => !!enabled)
 		.map(([featureId]) => featureId);
+
+const cleanPersonaRuntimeDefault = (key: string, value: unknown) => {
+	if (key === 'science_attached_corpora') {
+		if (typeof value === 'string') {
+			const trimmed = value.trim();
+			return trimmed || null;
+		}
+		if (Array.isArray(value)) {
+			return value.map((item) => `${item}`.trim().toLowerCase()).filter(Boolean);
+		}
+		return null;
+	}
+
+	if (typeof value === 'string') {
+		const trimmed = value.trim().toLowerCase();
+		return trimmed || null;
+	}
+
+	return null;
+};
+
+export const getPersonaRuntimeParamDefaults = (
+	personaStateOrCapabilities?: Record<string, any> | null
+) => {
+	const capabilities =
+		personaStateOrCapabilities?.capabilities &&
+		typeof personaStateOrCapabilities.capabilities === 'object'
+			? personaStateOrCapabilities.capabilities
+			: (personaStateOrCapabilities ?? {});
+	const defaults: Record<string, unknown> = {};
+	const runtimeDefaults =
+		capabilities?.runtime_defaults && typeof capabilities.runtime_defaults === 'object'
+			? capabilities.runtime_defaults
+			: null;
+
+	if (runtimeDefaults) {
+		for (const key of PERSONA_RUNTIME_DEFAULT_KEYS) {
+			if (!Object.prototype.hasOwnProperty.call(runtimeDefaults, key)) {
+				continue;
+			}
+			const value = cleanPersonaRuntimeDefault(key, runtimeDefaults[key]);
+			if (value !== null) {
+				defaults[key] = value;
+			}
+		}
+	}
+
+	const legacyWorkingMode = cleanPersonaRuntimeDefault(
+		'working_mode',
+		capabilities?.preferred_working_mode
+	);
+	if (legacyWorkingMode && !Object.prototype.hasOwnProperty.call(defaults, 'working_mode')) {
+		defaults.working_mode = legacyWorkingMode;
+	}
+
+	const legacyLocalCorpusMode = cleanPersonaRuntimeDefault(
+		'local_corpus_mode',
+		capabilities?.preferred_local_corpus_mode
+	);
+	if (
+		legacyLocalCorpusMode &&
+		!Object.prototype.hasOwnProperty.call(defaults, 'local_corpus_mode')
+	) {
+		defaults.local_corpus_mode = legacyLocalCorpusMode;
+	}
+
+	return defaults;
+};
 
 export const buildPersonaChatMeta = (
 	persona: Persona,

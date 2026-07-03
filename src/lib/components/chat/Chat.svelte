@@ -135,6 +135,7 @@
 		getActiveChatIdentity,
 		getEffectiveModelBinding,
 		getEffectivePersonaState,
+		getPersonaRuntimeParamDefaults,
 		getEffectiveVoicePreference,
 		getRequestedFeatureIdsFromFeatures
 	} from '$lib/utils/personas';
@@ -175,6 +176,7 @@
 	let directSelectedModels = [''];
 	let selectedPersonaId: string | null = null;
 	let selectedPersona: Persona | null = null;
+	let lastAppliedPersonaRuntimeDefaultsKey: string | null = null;
 	let sceneNote: SceneNote | null = null;
 	let showSceneNoteModal = false;
 	let activeBoundModelId: string | null = null;
@@ -333,13 +335,14 @@
 	let chatThinkingEnabled = false;
 	let chatLedgerAgenticEnabled = false;
 	let chatFocusedSearchEnabled = false;
-	type WorkingMode = 'general' | 'medical' | 'general_science' | 'offsec' | 'news';
+	type WorkingMode = 'general' | 'medical' | 'general_science' | 'offsec' | 'news' | 'cbt';
 	const CHAT_WORKING_MODES: WorkingMode[] = [
 		'general',
 		'medical',
 		'general_science',
 		'offsec',
-		'news'
+		'news',
+		'cbt'
 	];
 	let chatWorkingMode: WorkingMode = 'general';
 	let chatLocalCorpusMode: 'off' | 'prefer' = 'off';
@@ -452,7 +455,7 @@
 	const setChatWorkingMode = (mode: WorkingMode) => {
 		const nextParams = JSON.parse(JSON.stringify(params ?? {}));
 		nextParams.working_mode = mode;
-		if (mode === 'medical' || mode === 'general_science' || mode === 'offsec') {
+		if (mode === 'medical' || mode === 'general_science' || mode === 'offsec' || mode === 'cbt') {
 			nextParams.local_corpus_mode = 'prefer';
 		} else {
 			nextParams.local_corpus_mode = 'off';
@@ -476,6 +479,56 @@
 		const nextParams = JSON.parse(JSON.stringify(params ?? {}));
 		nextParams.science_attached_corpora = normalizeScienceAttachedCorpora(corpora);
 		params = nextParams;
+	};
+
+	const applyPersonaRuntimeParamDefaults = (
+		personaId: string,
+		defaults: Record<string, unknown>
+	) => {
+		const defaultsKey = `${personaId}:${JSON.stringify(defaults ?? {})}`;
+		if (lastAppliedPersonaRuntimeDefaultsKey === defaultsKey) {
+			return;
+		}
+
+		const nextParams = JSON.parse(JSON.stringify(params ?? {}));
+		let changed = false;
+
+		if (
+			typeof defaults.working_mode === 'string' &&
+			CHAT_WORKING_MODES.includes(defaults.working_mode as WorkingMode)
+		) {
+			nextParams.working_mode = defaults.working_mode;
+			changed = true;
+		}
+
+		if (typeof defaults.local_corpus_mode === 'string') {
+			nextParams.local_corpus_mode = ['off', 'prefer'].includes(defaults.local_corpus_mode)
+				? defaults.local_corpus_mode
+				: 'off';
+			changed = true;
+		}
+
+		if (typeof defaults.science_research_mode === 'string') {
+			nextParams.science_research_mode = normalizeScienceResearchMode(
+				defaults.science_research_mode
+			);
+			changed = true;
+		}
+
+		if (
+			Array.isArray(defaults.science_attached_corpora) ||
+			typeof defaults.science_attached_corpora === 'string'
+		) {
+			nextParams.science_attached_corpora = normalizeScienceAttachedCorpora(
+				defaults.science_attached_corpora
+			);
+			changed = true;
+		}
+
+		lastAppliedPersonaRuntimeDefaultsKey = defaultsKey;
+		if (changed) {
+			params = nextParams;
+		}
 	};
 
 	const getCurrentPersonaSnapshot = () => {
@@ -832,6 +885,7 @@
 	};
 
 	const applyDirectModelSelection = () => {
+		lastAppliedPersonaRuntimeDefaultsKey = null;
 		selectedPersonaId = null;
 		sceneNote = null;
 		showSceneNoteModal = false;
@@ -844,6 +898,7 @@
 	};
 
 	const applyPersonaSelectionInPlace = (personaId: string | null) => {
+		lastAppliedPersonaRuntimeDefaultsKey = null;
 		selectedPersonaId = personaId;
 		sceneNote = null;
 		showSceneNoteModal = false;
@@ -1031,6 +1086,11 @@
 			}
 
 			if (selectedPersona) {
+				const runtimeDefaults = getPersonaRuntimeParamDefaults(
+					personaState?.effective?.capabilities ?? selectedPersona.capabilities
+				);
+				applyPersonaRuntimeParamDefaults(selectedPersona.id, runtimeDefaults);
+
 				const nextParams = structuredClone(params ?? {});
 				const effectiveSystemPrompt = personaState?.effective?.system_prompt;
 

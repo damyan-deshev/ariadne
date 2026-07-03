@@ -106,7 +106,7 @@
 
 	const i18n = getContext('i18n');
 
-	type WorkingMode = 'general' | 'medical' | 'general_science' | 'offsec' | 'news';
+	type WorkingMode = 'general' | 'medical' | 'general_science' | 'offsec' | 'news' | 'cbt';
 	type ScienceResearchMode = 'light' | 'deep';
 	const WORKING_MODE_OPTIONS: {
 		value: WorkingMode;
@@ -139,6 +139,11 @@
 			label: 'News',
 			description:
 				'Local news corpus for selective briefings, timelines and article-grounded retrieval.'
+		},
+		{
+			value: 'cbt',
+			label: 'CBT',
+			description: 'CBT therapist lane with the dedicated CBT literature corpus.'
 		}
 	];
 
@@ -243,7 +248,9 @@
 					? 'O'
 					: mode === 'news'
 						? 'N'
-						: 'G';
+						: mode === 'cbt'
+							? 'CBT'
+							: 'G';
 
 	const getWorkingModeStatusText = (mode: WorkingMode): string =>
 		`${getWorkingModeLabel(mode)} mode is active for this chat`;
@@ -1776,11 +1783,13 @@
 														? 'text-orange-700 bg-orange-100/80 hover:bg-orange-200/80 dark:text-orange-200 dark:bg-orange-700/20 dark:hover:bg-orange-700/30'
 														: workingMode === 'news'
 															? 'text-sky-700 bg-sky-100/80 hover:bg-sky-200/80 dark:text-sky-200 dark:bg-sky-700/20 dark:hover:bg-sky-700/30'
-															: workingMode === 'general_science'
-																? 'text-indigo-700 bg-indigo-100/80 hover:bg-indigo-200/80 dark:text-indigo-200 dark:bg-indigo-700/20 dark:hover:bg-indigo-700/30'
-																: workingMode === 'medical'
-																	? 'text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200/80 dark:text-emerald-200 dark:bg-emerald-700/20 dark:hover:bg-emerald-700/30'
-																	: 'bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800'} {$mobile
+															: workingMode === 'cbt'
+																? 'text-rose-700 bg-rose-100/80 hover:bg-rose-200/80 dark:text-rose-200 dark:bg-rose-700/20 dark:hover:bg-rose-700/30'
+																: workingMode === 'general_science'
+																	? 'text-indigo-700 bg-indigo-100/80 hover:bg-indigo-200/80 dark:text-indigo-200 dark:bg-indigo-700/20 dark:hover:bg-indigo-700/30'
+																	: workingMode === 'medical'
+																		? 'text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200/80 dark:text-emerald-200 dark:bg-emerald-700/20 dark:hover:bg-emerald-700/30'
+																		: 'bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800'} {$mobile
 														? 'size-8 text-[0.55rem]'
 														: 'h-8 min-w-[4.5rem] px-2.5 text-[11px]'}"
 												>

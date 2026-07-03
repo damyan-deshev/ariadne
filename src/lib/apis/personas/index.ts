@@ -29,7 +29,7 @@ export type Persona = {
 	filter_ids?: string[];
 	action_ids?: string[];
 	default_feature_ids?: string[];
-	capabilities?: Record<string, boolean>;
+	capabilities?: Record<string, any>;
 	is_active?: boolean;
 	updated_at?: number;
 	created_at?: number;

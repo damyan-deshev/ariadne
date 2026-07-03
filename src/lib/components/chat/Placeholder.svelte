@@ -50,9 +50,10 @@
 	export let setChatLedgerAgenticEnabled: (enabled: boolean) => void = () => {};
 	export let focusedSearchEnabled = false;
 	export let setChatFocusedSearchEnabled: (enabled: boolean) => void = () => {};
-	export let workingMode: 'general' | 'medical' | 'general_science' | 'offsec' | 'news' = 'general';
+	export let workingMode: 'general' | 'medical' | 'general_science' | 'offsec' | 'news' | 'cbt' =
+		'general';
 	export let setChatWorkingMode: (
-		mode: 'general' | 'medical' | 'general_science' | 'offsec' | 'news'
+		mode: 'general' | 'medical' | 'general_science' | 'offsec' | 'news' | 'cbt'
 	) => void = () => {};
 	export let localCorpusMode: 'off' | 'prefer' = 'off';
 	export let setChatLocalCorpusMode: (mode: 'off' | 'prefer') => void = () => {};
