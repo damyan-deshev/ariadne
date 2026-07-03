@@ -118,6 +118,7 @@ exposure-log, or behavioral-experiment tooling.
 Research checkpoint:
 
 - `work/cbt-therapist-lane/research-cbt-client-tooling.md`
+- `work/cbt-therapist-lane/toolkit-inventory-and-architecture.md`
 
 For the first pass, generic notes can be used as a lightweight substrate for
 structured markdown records if needed. That is only a prototype path.
@@ -132,6 +133,11 @@ Future work should define first-class CBT client-state tools if the lane needs:
 - trend summaries across sessions
 - reminders or scheduled follow-up
 - clear therapist/client ownership and consent boundaries
+
+Architecture direction: build the CBT toolkit as a portable domain layer with a
+thin Ariadne adapter. Start inside Ariadne for model/corpus leverage, but keep
+schemas, storage, workflow operations, retrieval context, and safety events
+extractable into a standalone CBT harness.
 
 ## Test Plan
 
@@ -150,6 +156,8 @@ Add focused tests for:
   `docs/cbt-lane-inspection-notes.md`
 - CBT client tooling research:
   `work/cbt-therapist-lane/research-cbt-client-tooling.md`
+- CBT toolkit inventory and architecture:
+  `work/cbt-therapist-lane/toolkit-inventory-and-architecture.md`
 - English eval pack:
   `/Volumes/External/projects/cbt-therapist/eval/cbt_eval_v01.jsonl`
 - Bulgarian eval pack:
