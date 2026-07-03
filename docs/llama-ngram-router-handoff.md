@@ -17,7 +17,7 @@ Related report:
 The local llama backend currently runs as one router server on port `1234` with
 the `dual` profile:
 
-- `Qwen3.6-27B-Dense-MTP-Q6_K`: fast text-only dense lane with MTP
+- `Qwen3.6-27B-MTP-Q6_K`: fast text-only dense lane with MTP
 - `Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL`: daily 35B MoE lane, multimodal with mmproj,
   no MTP by default
 - `MODELS_MAX=2`

@@ -317,7 +317,7 @@ def test_structured_model_fallback_keeps_json_schema(monkeypatch):
         _call_structured_model(
             request=None,
             user=None,
-            model_id="Qwen3.5-35B-A3B-Q8_0",
+            model_id="Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL",
             schema_model=TinySchema,
             system_prompt="Extract candidates.",
             user_prompt='{"bucket":"photography_walks"}',

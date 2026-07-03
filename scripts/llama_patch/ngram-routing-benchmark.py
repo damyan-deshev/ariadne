@@ -154,7 +154,7 @@ class ModelRouter:
 
     async def dispatch(self, chat_id, request):
         if request.image:
-            model = "Qwen3.6-27B-Dense-MTP-Q6_K"
+            model = "Qwen3.6-27B-MTP-Q6_K"
         elif request.output_format == "json":
             model = "Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL"
         elif chat_id in self.active_chat_model:

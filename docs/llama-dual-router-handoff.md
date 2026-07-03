@@ -47,7 +47,7 @@ The active service is a single router on `0.0.0.0:1234`, profile `dual`, with
 two resident model instances:
 
 ```text
-Qwen3.6-27B-Dense-MTP-Q6_K
+Qwen3.6-27B-MTP-Q6_K
 Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL
 ```
 
@@ -59,12 +59,18 @@ parallel = 1
 cache-type-k = q8_0
 cache-type-v = q8_0
 build = b9032-5d5f1b46e
+GPU_MAX_HW_QUEUES = 1
 ```
+
+`GPU_MAX_HW_QUEUES=1` is intentional. On the Strix Halo/gfx1151 ROCm stack,
+two resident llama.cpp child processes can otherwise leave the GPU at 100%
+activity while all slots are idle. Details and benchmark results are in
+`docs/llama-rocm-gfx1151-idle-queue-workaround.md`.
 
 Their roles differ:
 
 ```text
-Qwen3.6-27B-Dense-MTP-Q6_K
+Qwen3.6-27B-MTP-Q6_K
   text-only
   spec-type = mtp
   no mmproj
@@ -86,7 +92,7 @@ Important: router `MODELS_MAX=2` does not split `CTX` across models. Each child 
 - Default backend is now the promoted symlink, not stock `/usr/local/bin/llama-server`.
 - `dual`, `beast`, and manual starts inherit the same backend unless explicitly overridden by env vars.
 - `dual` preloads:
-  - `Qwen3.6-27B-Dense-MTP-Q6_K`
+  - `Qwen3.6-27B-MTP-Q6_K`
   - `Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL`
 - Startup waits for `/models/load` to reach `loaded`.
 - Status JSON includes `llama_server_bin`, `llama_server_ld_library_path`,
@@ -111,20 +117,20 @@ Important: router `MODELS_MAX=2` does not split `CTX` across models. Each child 
 Added:
 
 ```ini
-[Qwen3.6-27B-Dense-MTP-Q6_K]
-model = /home/deshev/models/Qwen3.6-27B-Q6_K-mtp.gguf
+[Qwen3.6-27B-MTP-Q6_K]
+model = /home/deshev/models/Qwen3.6-27B-MTP-Q6_K.gguf
 spec-type = mtp
 spec-draft-n-max = 2
 spec-draft-n-min = 1
 jinja = true
-chat-template-file = /home/deshev/models/templates/qwen36-27b-hauhau-aggressive-think-toggle.jinja
+chat-template-file = /home/deshev/models/templates/qwen36-27b-official-think-toggle.jinja
 chat-template-kwargs = {"enable_thinking": false}
 
 [Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL]
 model = /home/deshev/models/Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL.gguf
 mmproj = /home/deshev/models/mmproj-Qwen3.6-35B-A3B-Q6_K.gguf
 jinja = true
-chat-template-file = /home/deshev/models/templates/qwen36-35b-a3b-hauhau-aggressive-think-toggle.jinja
+chat-template-file = /home/deshev/models/templates/qwen36-35b-a3b-official-think-toggle.jinja
 chat-template-kwargs = {"enable_thinking": false}
 ```
 
@@ -152,7 +158,7 @@ Recent backups:
 Status/properties confirmed:
 
 ```text
-Qwen3.6-27B-Dense-MTP-Q6_K
+Qwen3.6-27B-MTP-Q6_K
   status = loaded
   ctx = 131072
   cache = q8_0 / q8_0
@@ -174,7 +180,7 @@ Note: `/props` currently reports `speculative.type = none` for 27B, but the chil
 Smoke tests through `/v1/chat/completions`:
 
 ```text
-Qwen3.6-27B-Dense-MTP-Q6_K text -> ok
+Qwen3.6-27B-MTP-Q6_K text -> ok
 Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL text  -> ok
 Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL image -> red
 ```
@@ -223,7 +229,7 @@ Use the model ids directly:
 
 ```text
 Qwen3.6-35B-A3B-MTP-UD-Q8_K_XL
-Qwen3.6-27B-Dense-MTP-Q6_K
+Qwen3.6-27B-MTP-Q6_K
 ```
 
 Recommended behavior:
@@ -231,5 +237,5 @@ Recommended behavior:
 - Default daily/general lane: 35B MoE resident model.
 - Vision lane: 35B MoE resident model only.
 - Fast dense text lane: 27B MTP resident model.
-- Do not send image or multimodal requests to `Qwen3.6-27B-Dense-MTP-Q6_K`.
+- Do not send image or multimodal requests to `Qwen3.6-27B-MTP-Q6_K`.
 - Do not assume runtime speculative decoding is enabled just because the GGUF filename contains `mtp`; check preset args/logs.

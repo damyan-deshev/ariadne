@@ -28,7 +28,7 @@ From `froggeric/Qwen3.6-27B-MTP-GGUF`:
 - `/home/deshev/models/Qwen3.6-27B-Q8_0-mtp.gguf`
   - Size: `29,047,086,752` bytes
   - Disk: `28G`
-- `/home/deshev/models/Qwen3.6-27B-Q6_K-mtp.gguf`
+- `/home/deshev/models/Qwen3.6-27B-MTP-Q6_K.gguf`
   - Size: `22,533,852,832` bytes
   - Disk: `21G`
 
@@ -139,8 +139,8 @@ LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm-7.2.2/lib:/home/deshev/.local/src/llama.
   --threads 32 --threads-batch 32 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --host 0.0.0.0 --port 1234 \
-  --model /home/deshev/models/Qwen3.6-27B-Q6_K-mtp.gguf \
-  --alias Qwen3.6-27B-Q6_K-mtp \
+  --model /home/deshev/models/Qwen3.6-27B-MTP-Q6_K.gguf \
+  --alias Qwen3.6-27B-MTP-Q6_K \
   --no-cache-prompt --cache-reuse 256 --slot-prompt-similarity 0.10 \
   --parallel 1 --metrics \
   --spec-type mtp --spec-draft-n-max 2 --spec-draft-n-min 1
