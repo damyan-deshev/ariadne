@@ -100,3 +100,22 @@ Next:
 
 - Commit repo-tracked execution docs and canonical builder copy before copying
   the corpus to Strix.
+
+## 2026-07-03 - S3 Completed
+
+Committed the repo-tracked execution docs, roadmap update, and canonical CBT
+serving builder copy before Strix deploy.
+
+Evidence:
+
+- Commit: `0a8109432 Add CBT corpus execution ledger and builder`
+- Commit includes:
+  - `scripts/corpus/build_cbt_serving_layer.py`
+  - `work/cbt-therapist-lane/execution-ledger.md`
+  - `work/cbt-therapist-lane/run-log.md`
+  - `docs/roadmap/cbt-therapist-lane.md`
+
+Next:
+
+- Copy the rebuilt CBT corpus to the separate Strix root
+  `/home/deshev/open-webui/cbt_corpus`.

@@ -23,8 +23,8 @@ Last updated: 2026-07-03
 | S0 | Create execution ledger and run log | completed | Needed before executing the rest of the sequence | `work/cbt-therapist-lane/execution-ledger.md` and `work/cbt-therapist-lane/run-log.md` exist |
 | S1 | Make CBT serving layer portable and Ariadne-compatible | completed | Strix copy and runtime integration require relative paths and compatible catalog fields | Patched builder, rebuilt 6 usable records, catalog has no absolute path matches, required Ariadne fields present |
 | S2 | Rebuild CBT `_serving` locally and smoke test Ariadne local corpus retrieval | completed | Requires S1 builder changes | Loader saw domain `cbt` with 6 usable books; shortlist returned 3 books; retrieval returned 4 evidence chunks with FTS enabled |
-| S3 | Commit repo-tracked execution/docs and canonical builder copy before Strix deploy | in_progress | Required by project operating rule before pushing to the box | Pending |
-| S4 | Copy CBT corpus to separate Strix root | pending | Requires S2 evidence and S3 commit | Pending |
+| S3 | Commit repo-tracked execution/docs and canonical builder copy before Strix deploy | completed | Required by project operating rule before pushing to the box | Commit `0a8109432` |
+| S4 | Copy CBT corpus to separate Strix root | in_progress | Requires S2 evidence and S3 commit | Pending |
 | S5 | Verify CBT corpus on Strix | pending | Requires S4 copy | Pending |
 | S6 | Add Ariadne backend CBT corpus root and working mode | pending | Requires corpus shape to be known and verified | Pending |
 | S7 | Add CBT tool and middleware wiring | pending | Requires S6 runtime selection | Pending |
@@ -39,11 +39,12 @@ Last updated: 2026-07-03
   metadata fields, then rebuilt `_serving`.
 - S2: Smoke tested the rebuilt CBT corpus through Ariadne's local corpus loader
   and retrieval path.
+- S3: Committed repo-tracked execution docs and the canonical CBT serving
+  builder copy before Strix deploy.
 
 ## In Progress
 
-- S3: Commit repo-tracked execution docs and canonical builder copy before
-  Strix deploy.
+- S4: Copy CBT corpus to separate Strix root.
 
 ## Blocked
 
@@ -51,8 +52,8 @@ Last updated: 2026-07-03
 
 ## Next
 
-Complete S3.
+Complete S4.
 
-S3 is current because repo-tracked changes must be committed before any Strix
-copy or deploy. The patched external corpus builder has also been copied into
-the Ariadne repo as `scripts/corpus/build_cbt_serving_layer.py`.
+S4 is current because the rebuilt CBT corpus is locally portable and repo
+changes are committed. Copy it to the separate Strix root
+`/home/deshev/open-webui/cbt_corpus`.
