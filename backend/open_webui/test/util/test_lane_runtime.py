@@ -15,6 +15,7 @@ def test_normalize_working_mode_keeps_legacy_science_alias_but_defaults_missing_
     assert normalize_working_mode(None, local_corpus_mode="auto") == "general"
     assert normalize_working_mode(None, local_corpus_mode=None) == "general"
     assert normalize_working_mode("general_science") == "general_science"
+    assert normalize_working_mode("cbt") == "cbt"
     assert normalize_working_mode("unknown", local_corpus_mode="off") == "general"
     assert normalize_working_mode("unknown", local_corpus_mode="prefer") == "general"
 
@@ -75,6 +76,68 @@ def test_resolve_corpus_runtime_separates_general_prefer_from_medical_and_genera
     )
     assert detached_runtime.medical_enabled is False
     assert detached_runtime.attached_roots == {}
+
+
+def test_resolve_corpus_runtime_enables_cbt_from_working_mode_with_prefer(tmp_path):
+    cbt_root = tmp_path / "cbt_corpus"
+    cbt_root.mkdir()
+    config = SimpleNamespace(
+        ENABLE_LOCAL_CORPUS_TOOLS=True,
+        CBT_CORPUS_ROOT=str(cbt_root),
+        NEWS_ENABLED=False,
+    )
+
+    runtime = resolve_corpus_runtime(
+        config,
+        {"working_mode": "cbt", "local_corpus_mode": "prefer"},
+    )
+
+    assert runtime.working_mode == "cbt"
+    assert runtime.local_corpus_mode == "prefer"
+    assert runtime.cbt_enabled is True
+    assert runtime.cbt_root == cbt_root.resolve()
+    assert runtime.medical_enabled is False
+    assert runtime.offsec_enabled is False
+    assert runtime.any_enabled is True
+
+
+def test_resolve_corpus_runtime_keeps_cbt_off_when_corpus_mode_is_off(tmp_path):
+    cbt_root = tmp_path / "cbt_corpus"
+    cbt_root.mkdir()
+    config = SimpleNamespace(
+        ENABLE_LOCAL_CORPUS_TOOLS=True,
+        CBT_CORPUS_ROOT=str(cbt_root),
+        NEWS_ENABLED=False,
+    )
+
+    runtime = resolve_corpus_runtime(
+        config,
+        {"working_mode": "cbt", "local_corpus_mode": "off"},
+    )
+
+    assert runtime.working_mode == "cbt"
+    assert runtime.cbt_enabled is False
+    assert runtime.cbt_root is None
+
+
+def test_resolve_corpus_runtime_disables_cbt_when_local_corpus_tools_disabled(tmp_path):
+    cbt_root = tmp_path / "cbt_corpus"
+    cbt_root.mkdir()
+    config = SimpleNamespace(
+        ENABLE_LOCAL_CORPUS_TOOLS=False,
+        CBT_CORPUS_ROOT=str(cbt_root),
+        NEWS_ENABLED=False,
+    )
+
+    runtime = resolve_corpus_runtime(
+        config,
+        {"working_mode": "cbt", "local_corpus_mode": "prefer"},
+    )
+
+    assert runtime.working_mode == "cbt"
+    assert runtime.cbt_enabled is False
+    assert runtime.cbt_root is None
+    assert runtime.any_enabled is False
 
 
 def test_assess_medical_corpus_sufficiency_returns_use_corpus_only(monkeypatch):

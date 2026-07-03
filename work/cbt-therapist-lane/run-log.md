@@ -192,3 +192,44 @@ Evidence:
 Next:
 
 - Commit the S5 ledger update and `.gitignore` guard before backend code work.
+
+## 2026-07-03 - S6 Completed
+
+Added backend runtime support for the CBT corpus and a small persona runtime
+defaults primitive.
+
+Changes:
+
+- Added `CBT_CORPUS_ROOT` config with default `cbt_corpus`.
+- Added `cbt` to backend working modes.
+- Added `resolve_cbt_corpus_root`, `cbt_root`, and `cbt_enabled` to corpus
+  runtime selection.
+- Added persona capability `runtime_defaults` support for runtime params:
+  `working_mode`, `local_corpus_mode`, `science_research_mode`, and
+  `science_attached_corpora`.
+- Kept legacy `preferred_working_mode` and `preferred_local_corpus_mode`
+  compatibility.
+- Changed Morning News persona seeding to include
+  `runtime_defaults: {"working_mode": "news"}`.
+- Applied persona runtime defaults in `main.py` only when chat params do not
+  explicitly set the same key.
+
+Important behavior:
+
+- A CBT persona can later set:
+  `runtime_defaults: {"working_mode": "cbt", "local_corpus_mode": "prefer"}`.
+- Manual user/chat params still win. If a user explicitly sets
+  `local_corpus_mode: "off"`, the persona default does not override it.
+
+Verification:
+
+- Compile check exited 0:
+  `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile backend/open_webui/main.py backend/open_webui/utils/personas.py backend/open_webui/retrieval/corpus_runtime.py backend/open_webui/retrieval/working_mode.py`
+- Targeted tests exited 0:
+  `.venv.py312.news-tests/bin/python -m pytest -q backend/open_webui/test/util/test_lane_runtime.py backend/open_webui/test/util/test_news_lane.py::test_morning_news_persona_form_uses_news_defaults backend/open_webui/test/util/test_news_lane.py::test_persona_preferred_working_mode_reports_news backend/open_webui/test/util/test_news_lane.py::test_persona_runtime_param_defaults_prefer_explicit_runtime_defaults`
+- Test result: `12 passed, 7 warnings`.
+- `git diff --check` exited 0.
+
+Next:
+
+- Add CBT tool and middleware wiring.

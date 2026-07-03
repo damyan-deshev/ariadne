@@ -18,6 +18,12 @@ PERSONA_DEFAULT_FEATURE_IDS = (
     "memory",
     "voice",
 )
+PERSONA_RUNTIME_DEFAULT_KEYS = {
+    "working_mode",
+    "local_corpus_mode",
+    "science_research_mode",
+    "science_attached_corpora",
+}
 
 MORNING_NEWS_PERSONA_NAME = "Morning News"
 MORNING_NEWS_PERSONA_ID_PREFIX = "system-morning-news"
@@ -66,6 +72,9 @@ def build_morning_news_persona_form(config_or_path: Any = None) -> PersonaForm:
         default_feature_ids=["voice"],
         capabilities={
             "preferred_working_mode": MORNING_NEWS_PERSONA_PREFERRED_WORKING_MODE,
+            "runtime_defaults": {
+                "working_mode": MORNING_NEWS_PERSONA_PREFERRED_WORKING_MODE,
+            },
             "news_persona": True,
         },
         is_active=True,
@@ -101,15 +110,70 @@ def ensure_morning_news_personas_for_admins(config_or_path: Any = None) -> list[
 def get_persona_preferred_working_mode(
     effective_persona_state: Optional[dict[str, Any]],
 ) -> Optional[str]:
-    if not isinstance(effective_persona_state, dict):
-        return None
-
-    capabilities = effective_persona_state.get("capabilities") or {}
-    preferred = capabilities.get("preferred_working_mode")
+    preferred = get_persona_runtime_param_defaults(effective_persona_state).get(
+        "working_mode"
+    )
     if isinstance(preferred, str):
         preferred = preferred.strip().lower()
         return preferred or None
     return None
+
+
+def _clean_persona_runtime_default(key: str, value: Any) -> Any:
+    if key == "science_attached_corpora":
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        if isinstance(value, (list, tuple, set)):
+            normalized = [
+                str(item).strip().lower()
+                for item in value
+                if str(item or "").strip()
+            ]
+            return normalized
+        return None
+
+    if isinstance(value, str):
+        value = value.strip().lower()
+        return value or None
+    return None
+
+
+def get_persona_runtime_param_defaults(
+    effective_persona_state: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(effective_persona_state, dict):
+        return {}
+
+    capabilities = effective_persona_state.get("capabilities") or {}
+    if not isinstance(capabilities, dict):
+        return {}
+
+    defaults: dict[str, Any] = {}
+    runtime_defaults = capabilities.get("runtime_defaults")
+    if isinstance(runtime_defaults, dict):
+        for key in PERSONA_RUNTIME_DEFAULT_KEYS:
+            if key not in runtime_defaults:
+                continue
+            value = _clean_persona_runtime_default(key, runtime_defaults.get(key))
+            if value is not None:
+                defaults[key] = value
+
+    legacy_working_mode = _clean_persona_runtime_default(
+        "working_mode",
+        capabilities.get("preferred_working_mode"),
+    )
+    if legacy_working_mode and "working_mode" not in defaults:
+        defaults["working_mode"] = legacy_working_mode
+
+    legacy_local_corpus_mode = _clean_persona_runtime_default(
+        "local_corpus_mode",
+        capabilities.get("preferred_local_corpus_mode"),
+    )
+    if legacy_local_corpus_mode and "local_corpus_mode" not in defaults:
+        defaults["local_corpus_mode"] = legacy_local_corpus_mode
+
+    return defaults
 
 
 def build_persona_defaults_snapshot(persona: PersonaModel) -> dict[str, Any]:

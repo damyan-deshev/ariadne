@@ -1,6 +1,6 @@
 from typing import Any
 
-WORKING_MODES = {"general", "medical", "general_science", "offsec", "news"}
+WORKING_MODES = {"general", "medical", "general_science", "offsec", "news", "cbt"}
 LEGACY_WORKING_MODE_ALIASES = {"science": "medical"}
 
 

@@ -3672,6 +3672,12 @@ LOCAL_CORPUS_ROOT = PersistentConfig(
     os.getenv("LOCAL_CORPUS_ROOT", "literature_corpus"),
 )
 
+CBT_CORPUS_ROOT = PersistentConfig(
+    "CBT_CORPUS_ROOT",
+    "rag.cbt.corpus_root",
+    os.getenv("CBT_CORPUS_ROOT", "cbt_corpus"),
+)
+
 OFFSEC_CORPUS_ROOT = PersistentConfig(
     "OFFSEC_CORPUS_ROOT",
     "rag.offsec.root",

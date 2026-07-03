@@ -137,6 +137,7 @@ from open_webui.utils.personas import (
     build_persona_defaults_snapshot,
     ensure_morning_news_personas_for_admins,
     get_persona_preferred_working_mode,
+    get_persona_runtime_param_defaults,
     resolve_effective_persona_state,
 )
 from open_webui.utils.science_lane_skills import ensure_science_lane_skills
@@ -357,6 +358,7 @@ from open_webui.config import (
     ENABLE_SAME_TURN_TOOL_OUTPUT_COMPACTION,
     ENABLE_LOCAL_CORPUS_TOOLS,
     LOCAL_CORPUS_ROOT,
+    CBT_CORPUS_ROOT,
     OFFSEC_CORPUS_ROOT,
     NEWS_ENABLED,
     NEWS_ARTICLE_STORE_ROOT,
@@ -1334,6 +1336,7 @@ app.state.config.ENABLE_SAME_TURN_TOOL_OUTPUT_COMPACTION = (
 )
 app.state.config.ENABLE_LOCAL_CORPUS_TOOLS = ENABLE_LOCAL_CORPUS_TOOLS
 app.state.config.LOCAL_CORPUS_ROOT = LOCAL_CORPUS_ROOT
+app.state.config.CBT_CORPUS_ROOT = CBT_CORPUS_ROOT
 app.state.config.OFFSEC_CORPUS_ROOT = OFFSEC_CORPUS_ROOT
 app.state.config.NEWS_ENABLED = NEWS_ENABLED
 app.state.config.NEWS_ARTICLE_STORE_ROOT = NEWS_ARTICLE_STORE_ROOT
@@ -2081,21 +2084,32 @@ async def chat_completion(
                 if str(raw_ledger_mode).strip().lower() == "agentic"
                 else "vibe"
             )
+        chat_params = form_data.get("params") or {}
+        persona_runtime_param_defaults = get_persona_runtime_param_defaults(
+            (persona_state or {}).get("effective")
+        )
+
+        def runtime_param_value(key: str) -> Any:
+            if key in chat_params:
+                value = chat_params.get(key)
+                if not (isinstance(value, str) and not value.strip()):
+                    return value
+            return persona_runtime_param_defaults.get(key)
+
         local_corpus_mode = normalize_local_corpus_mode(
-            form_data.get("params", {}).get("local_corpus_mode")
+            runtime_param_value("local_corpus_mode")
         )
         science_research_mode = normalize_science_research_mode(
-            form_data.get("params", {}).get("science_research_mode")
+            runtime_param_value("science_research_mode")
         )
         science_attached_corpora = normalize_science_attached_corpora(
-            form_data.get("params", {}).get("science_attached_corpora")
+            runtime_param_value("science_attached_corpora")
         )
         persona_preferred_working_mode = get_persona_preferred_working_mode(
             (persona_state or {}).get("effective")
         )
         working_mode = normalize_working_mode(
-            form_data.get("params", {}).get("working_mode")
-            or persona_preferred_working_mode,
+            runtime_param_value("working_mode") or persona_preferred_working_mode,
             local_corpus_mode=local_corpus_mode,
         )
 
@@ -2158,6 +2172,9 @@ async def chat_completion(
             metadata["persona_effective_capabilities"] = effective_persona_state[
                 "capabilities"
             ]
+            metadata["persona_runtime_param_defaults"] = (
+                persona_runtime_param_defaults
+            )
             metadata["system_prompt_override_present"] = effective_persona_state[
                 "system_prompt_override_present"
             ]

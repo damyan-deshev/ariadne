@@ -665,6 +665,7 @@ def test_morning_news_persona_form_uses_news_defaults(news_fixture):
     assert form.bound_model_id is None
     assert form.voice_id == "bg"
     assert form.capabilities["preferred_working_mode"] == "news"
+    assert form.capabilities["runtime_defaults"] == {"working_mode": "news"}
     assert form.default_feature_ids == ["voice"]
 
 
@@ -787,6 +788,29 @@ def test_persona_preferred_working_mode_reports_news():
     )
 
     assert preferred == "news"
+
+
+def test_persona_runtime_param_defaults_prefer_explicit_runtime_defaults():
+    defaults = persona_utils.get_persona_runtime_param_defaults(
+        {
+            "capabilities": {
+                "preferred_working_mode": "news",
+                "preferred_local_corpus_mode": "off",
+                "runtime_defaults": {
+                    "working_mode": "cbt",
+                    "local_corpus_mode": "prefer",
+                    "science_attached_corpora": ["medicine", ""],
+                    "ignored": "value",
+                },
+            }
+        }
+    )
+
+    assert defaults == {
+        "working_mode": "cbt",
+        "local_corpus_mode": "prefer",
+        "science_attached_corpora": ["medicine"],
+    }
 
 
 def test_should_enable_shared_tool_narration_for_news_mode(news_fixture):

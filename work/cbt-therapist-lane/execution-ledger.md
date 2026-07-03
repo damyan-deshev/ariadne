@@ -30,9 +30,9 @@ Last updated: 2026-07-03
 | S3 | Commit repo-tracked execution/docs and canonical builder copy before Strix deploy | completed | Required by project operating rule before pushing to the box | Commit `0a8109432` |
 | S4 | Copy CBT corpus to separate Strix root | completed | Requires S2 evidence and S3 commit | `rsync` transferred 1,275 regular files to `/home/deshev/open-webui/cbt_corpus` |
 | S5 | Verify CBT corpus on Strix | completed | Requires S4 copy | Remote catalog has 6 CBT rows, no missing required fields, no absolute path values, 0 missing selected retrieval files, and medical root has no CBT domain |
-| S6 | Add Ariadne backend CBT corpus root and working mode | in_progress | Requires corpus shape to be known and verified | Pending |
-| S7 | Add CBT tool and middleware wiring | pending | Requires S6 runtime selection | Pending |
-| S8 | Add frontend CBT working-mode surface | pending | Requires backend mode contract | Pending |
+| S6 | Add Ariadne backend CBT corpus root, working mode, and persona runtime defaults | completed | Requires corpus shape to be known and verified | `CBT_CORPUS_ROOT`, `working_mode=cbt`, `cbt_root`, and persona `runtime_defaults`; 12 targeted tests passed |
+| S7 | Add CBT tool and middleware wiring | in_progress | Requires S6 runtime selection | Pending |
+| S8 | Add frontend CBT working-mode surface and persona-selected corpus reflection | pending | Requires backend mode contract | Pending |
 | S9 | Seed CBT therapist persona | pending | Requires CBT working mode and model binding path | Pending |
 | S10 | Add focused tests and CBT smoke eval | pending | Requires backend/frontend/persona implementation | Pending |
 
@@ -48,10 +48,12 @@ Last updated: 2026-07-03
 - S4: Copied the CBT corpus to the separate Strix root
   `/home/deshev/open-webui/cbt_corpus`.
 - S5: Verified the remote CBT corpus on Strix.
+- S6: Added backend CBT runtime selection and a persona runtime defaults
+  primitive.
 
 ## In Progress
 
-- S6: Add Ariadne backend CBT corpus root and working mode.
+- S7: Add CBT tool and middleware wiring.
 
 ## Blocked
 
@@ -59,7 +61,12 @@ Last updated: 2026-07-03
 
 ## Next
 
-Complete S6.
+Complete S7.
 
-S6 is current because the corpus now exists on Strix as a separate portable
-root and Ariadne needs a backend runtime path for `working_mode="cbt"`.
+S7 is current because Ariadne can now resolve the CBT runtime, but chat
+middleware and built-in tool availability do not yet expose CBT retrieval to
+the model.
+
+S8 must also reflect persona-selected runtime/corpus defaults in the UI so the
+chat controls do not still appear to be in General mode after a CBT persona is
+selected.

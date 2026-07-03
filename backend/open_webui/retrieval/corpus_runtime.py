@@ -12,6 +12,7 @@ from open_webui.retrieval.working_mode import normalize_working_mode
 from open_webui.utils.lane_runtime import normalize_science_attached_corpora
 
 DEFAULT_OFFSEC_CORPUS_ROOT_SETTING = Path("offsec_corpus")
+DEFAULT_CBT_CORPUS_ROOT_SETTING = Path("cbt_corpus")
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class CorpusRuntimeSelection:
     medical_root: Optional[Path]
     attached_corpora: tuple[str, ...]
     attached_roots: dict[str, Path]
+    cbt_root: Optional[Path]
     offsec_root: Optional[Path]
     news_root: Optional[Path]
 
@@ -42,6 +44,10 @@ class CorpusRuntimeSelection:
         return self.offsec_root is not None
 
     @property
+    def cbt_enabled(self) -> bool:
+        return self.cbt_root is not None
+
+    @property
     def news_enabled(self) -> bool:
         return self.news_root is not None
 
@@ -50,6 +56,7 @@ class CorpusRuntimeSelection:
         return (
             self.medical_enabled
             or self.general_science_enabled
+            or self.cbt_enabled
             or self.offsec_enabled
             or self.news_enabled
         )
@@ -79,6 +86,25 @@ def resolve_offsec_corpus_root(config_or_path: Any = None) -> Optional[Path]:
     return resolve_repo_relative_corpus_root(
         candidate,
         DEFAULT_OFFSEC_CORPUS_ROOT_SETTING,
+    )
+
+
+def resolve_cbt_corpus_root(config_or_path: Any = None) -> Optional[Path]:
+    if config_or_path is None:
+        return None
+
+    if isinstance(config_or_path, (str, Path)):
+        candidate = Path(config_or_path)
+    else:
+        raw = getattr(config_or_path, "CBT_CORPUS_ROOT", None)
+        candidate = Path(str(raw)) if raw else None
+
+    if candidate is None:
+        return None
+
+    return resolve_repo_relative_corpus_root(
+        candidate,
+        DEFAULT_CBT_CORPUS_ROOT_SETTING,
     )
 
 
@@ -117,12 +143,14 @@ def resolve_corpus_runtime(
             medical_root=None,
             attached_corpora=attached_corpora,
             attached_roots={},
+            cbt_root=None,
             offsec_root=None,
             news_root=news_root,
         )
 
     medical_root = None
     attached_roots: dict[str, Path] = {}
+    cbt_root = None
     offsec_root = None
     news_root = None
 
@@ -138,6 +166,8 @@ def resolve_corpus_runtime(
             if medicine_root is not None:
                 attached_roots["medicine"] = medicine_root
                 medical_root = medicine_root
+    elif working_mode == "cbt":
+        cbt_root = resolve_cbt_corpus_root(config_or_path)
     elif working_mode == "offsec":
         offsec_root = resolve_offsec_corpus_root(config_or_path)
     elif working_mode == "news" and bool(
@@ -151,6 +181,7 @@ def resolve_corpus_runtime(
         medical_root=medical_root,
         attached_corpora=attached_corpora,
         attached_roots=attached_roots,
+        cbt_root=cbt_root,
         offsec_root=offsec_root,
         news_root=news_root,
     )
