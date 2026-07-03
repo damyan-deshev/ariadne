@@ -66,7 +66,8 @@ The current CBT compiled corpus already has a serving layer, but its catalog
 contains absolute Mac paths. Before copying it to Strix:
 
 1. Patch/adapt `build_cbt_serving_layer.py` to emit paths relative to the
-   compiled corpus root.
+   compiled corpus root. The Ariadne-tracked canonical copy lives at
+   `scripts/corpus/build_cbt_serving_layer.py`.
 2. Add Ariadne-compatible catalog fields such as `primary_discipline`,
    `resource_type`, `evidence_tier`, `coverage_phrases`, `negative_scope`,
    `clean_toc`, and `what_this_is`.
