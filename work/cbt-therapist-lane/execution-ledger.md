@@ -33,7 +33,7 @@ Last updated: 2026-07-03
 | S6 | Add Ariadne backend CBT corpus root, working mode, and persona runtime defaults | completed | Requires corpus shape to be known and verified | `CBT_CORPUS_ROOT`, `working_mode=cbt`, `cbt_root`, and persona `runtime_defaults`; 12 targeted tests passed |
 | S7 | Add CBT tool and middleware wiring | completed | Requires S6 runtime selection | CBT-specific wrappers, tool injection, selector guidance, native prompt, narration phases; 12 targeted tests passed |
 | S8 | Add frontend CBT working-mode surface and persona-selected corpus reflection | completed | Requires backend mode contract | Frontend accepts `working_mode=cbt`, applies persona runtime defaults into chat params once per persona/default set, shows CBT in the working-mode control, and focused Vitest/format/diff checks passed |
-| S9 | Seed CBT therapist persona | pending | Requires CBT working mode and model binding path | Pending |
+| S9 | Seed CBT therapist persona | completed | Requires CBT working mode and model binding path | CBT Therapist persona seeds for admins, binds to `Qwen3.6-27B-MTP-Q6_K`, defaults to `working_mode=cbt` and `local_corpus_mode=prefer`, and applies Qwen vendor non-thinking sampling defaults without overriding explicit chat params |
 | S10 | Add focused tests and CBT smoke eval | pending | Requires backend/frontend/persona implementation | Pending |
 
 ## Completed
@@ -53,6 +53,8 @@ Last updated: 2026-07-03
 - S7: Added CBT-specific corpus tools and middleware guidance.
 - S8: Added frontend CBT working-mode controls and reflected persona-selected
   runtime/corpus defaults in chat params.
+- S9: Added CBT Therapist persona seeding, model binding config, and
+  persona-level non-thinking sampling defaults.
 
 ## In Progress
 
@@ -64,8 +66,8 @@ Last updated: 2026-07-03
 
 ## Next
 
-Start S9.
+Start S10.
 
-S9 should seed a CBT therapist persona bound to `Qwen3.6-27B-MTP-Q6_K` and set
-persona runtime defaults so the frontend opens the CBT lane with
-`local_corpus_mode=prefer`.
+S10 should run the focused end-to-end CBT checks: backend/frontend tests,
+corpus-tool smoke through the CBT lane, and a small Strix model smoke using the
+seeded persona defaults.

@@ -525,6 +525,32 @@
 			changed = true;
 		}
 
+		for (const [key, value] of Object.entries(defaults)) {
+			if (
+				[
+					'working_mode',
+					'local_corpus_mode',
+					'science_research_mode',
+					'science_attached_corpora'
+				].includes(key)
+			) {
+				continue;
+			}
+			if (value === null || value === undefined) {
+				continue;
+			}
+			const currentValue = nextParams[key];
+			if (
+				currentValue !== null &&
+				currentValue !== undefined &&
+				!(typeof currentValue === 'string' && !currentValue.trim())
+			) {
+				continue;
+			}
+			nextParams[key] = structuredClone(value);
+			changed = true;
+		}
+
 		lastAppliedPersonaRuntimeDefaultsKey = defaultsKey;
 		if (changed) {
 			params = nextParams;

@@ -311,3 +311,63 @@ Verification:
 Next:
 
 - Seed the CBT therapist persona with CBT runtime defaults and model binding.
+
+## 2026-07-03 - S9 Completed
+
+Seeded the CBT Therapist persona and extended persona runtime defaults so the
+persona can open the CBT lane and carry Qwen non-thinking sampling params.
+
+Changes:
+
+- Added `CBT_THERAPIST_MODEL` config with default `Qwen3.6-27B-MTP-Q6_K`.
+- Added CBT persona builder and admin seeding:
+  - persona name: `CBT Therapist`
+  - archetype: `coach`
+  - bound model: `Qwen3.6-27B-MTP-Q6_K` unless overridden by config
+  - startup ensure function: `ensure_cbt_therapist_personas_for_admins`
+- Added CBT persona runtime defaults:
+  - `working_mode=cbt`
+  - `local_corpus_mode=prefer`
+  - `temperature=0.7`
+  - `top_p=0.8`
+  - `top_k=20`
+  - `min_p=0.0`
+  - `presence_penalty=1.5`
+  - `repeat_penalty=1.0`
+  - `chat_template_kwargs={"enable_thinking": false}`
+- Extended frontend and backend persona runtime-default parsing to include the
+  sampling params and `chat_template_kwargs`.
+- Added backend merge helper so persona defaults are applied to chat params only
+  when the chat has not explicitly set the same param.
+- Kept explicit `working_mode` conservative: if a request explicitly selects a
+  different working mode, CBT's default `local_corpus_mode=prefer` is not added.
+- CBT system prompt includes method scope, dedicated CBT corpus preference,
+  corpus separation, Bulgarian style guidance, medication boundary, and direct
+  self-harm/plan/intent/means safety questions.
+
+Vendor parameter source:
+
+- Qwen's Hugging Face model page documents the non-thinking sampling profile as
+  `temperature=0.7`, `top_p=0.80`, `top_k=20`, `min_p=0.0`,
+  `presence_penalty=1.5`, `repetition_penalty=1.0`, and shows disabling
+  thinking through `chat_template_kwargs={"enable_thinking": false}` for
+  OpenAI-compatible APIs. Ariadne uses `repeat_penalty=1.0`, the existing
+  llama.cpp/OpenWebUI request key corresponding to repetition penalty.
+
+Verification:
+
+- Compile check exited 0:
+  `.venv.py312.news-tests/bin/python -m py_compile backend/open_webui/utils/personas.py backend/open_webui/config.py backend/open_webui/main.py backend/open_webui/test/util/test_cbt_lane.py`
+- Targeted backend tests exited 0:
+  `.venv.py312.news-tests/bin/python -m pytest -q backend/open_webui/test/util/test_cbt_lane.py backend/open_webui/test/util/test_lane_runtime.py backend/open_webui/test/util/test_news_lane.py::test_persona_runtime_param_defaults_prefer_explicit_runtime_defaults`
+- Backend result: `13 passed, 3 warnings`.
+- Targeted frontend Vitest exited 0:
+  `npm exec -- vitest run src/lib/utils/personas.test.ts`
+- Frontend result: `1 passed`, `2 tests`.
+- Prettier check for touched frontend files exited 0:
+  `npm exec -- prettier --check src/lib/utils/personas.ts src/lib/utils/personas.test.ts src/lib/components/chat/Chat.svelte`
+- `git diff --check` exited 0.
+
+Next:
+
+- Commit and push S9, then start S10 focused CBT smoke checks.

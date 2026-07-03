@@ -23,11 +23,43 @@ PERSONA_RUNTIME_DEFAULT_KEYS = {
     "local_corpus_mode",
     "science_research_mode",
     "science_attached_corpora",
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "presence_penalty",
+    "repeat_penalty",
+    "chat_template_kwargs",
 }
+PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = {
+    "temperature",
+    "top_p",
+    "min_p",
+    "presence_penalty",
+    "repeat_penalty",
+}
+PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = {"top_k"}
+PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS = {"chat_template_kwargs"}
 
 MORNING_NEWS_PERSONA_NAME = "Morning News"
 MORNING_NEWS_PERSONA_ID_PREFIX = "system-morning-news"
 MORNING_NEWS_PERSONA_PREFERRED_WORKING_MODE = "news"
+
+CBT_THERAPIST_PERSONA_NAME = "CBT Therapist"
+CBT_THERAPIST_PERSONA_ID_PREFIX = "system-cbt-therapist"
+CBT_THERAPIST_DEFAULT_MODEL = "Qwen3.6-27B-MTP-Q6_K"
+CBT_THERAPIST_PREFERRED_WORKING_MODE = "cbt"
+CBT_THERAPIST_RUNTIME_DEFAULTS = {
+    "working_mode": CBT_THERAPIST_PREFERRED_WORKING_MODE,
+    "local_corpus_mode": "prefer",
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "repeat_penalty": 1.0,
+    "chat_template_kwargs": {"enable_thinking": False},
+}
 
 
 def build_morning_news_persona_id(user_id: str) -> str:
@@ -107,6 +139,91 @@ def ensure_morning_news_personas_for_admins(config_or_path: Any = None) -> list[
     return seeded
 
 
+def build_cbt_therapist_persona_id(user_id: str) -> str:
+    return f"{CBT_THERAPIST_PERSONA_ID_PREFIX}-{user_id}"
+
+
+def build_cbt_therapist_persona_form(config_or_path: Any = None) -> PersonaForm:
+    bound_model_id = CBT_THERAPIST_DEFAULT_MODEL
+
+    if config_or_path is not None:
+        bound_model_id = (
+            getattr(config_or_path, "CBT_THERAPIST_MODEL", None)
+            or CBT_THERAPIST_DEFAULT_MODEL
+        )
+
+    return PersonaForm(
+        id=None,
+        name=CBT_THERAPIST_PERSONA_NAME,
+        description="CBT-oriented therapist persona over the dedicated CBT literature corpus.",
+        archetype="coach",
+        bound_model_id=bound_model_id,
+        system_prompt=(
+            "You are Ariadne CBT, a cognitive-behavioral therapy oriented therapist "
+            "persona. Work collaboratively and concretely: set a small agenda, ask "
+            "focused Socratic questions, identify situations, emotions, automatic "
+            "thoughts, behaviors, avoidance loops, beliefs, and testable alternatives. "
+            "Use behavioral experiments, thought records, homework planning, and "
+            "feedback when appropriate, but keep each turn concise and usable. Prefer "
+            "the dedicated CBT corpus tools when making CBT-method claims or when the "
+            "user asks for exercises, worksheets, homework, protocols, or technique "
+            "rationale; cite the specific source or section when you rely on corpus "
+            "material. Do not merge CBT corpus evidence with the medical or offsec "
+            "corpora. If the user writes in Bulgarian, respond in natural Bulgarian "
+            "therapeutic register without slash gender forms or translated manual "
+            "phrasing. Do not diagnose, prescribe, change medication, or claim to "
+            "replace real therapy, medical care, or emergency support. For medication "
+            "questions, encourage the user to discuss changes with their prescriber. "
+            "If there is any sign of self-harm, suicide, violence, or acute danger, "
+            "ask directly about self-harm, plan, intent, means, and immediate safety; "
+            "if risk may be imminent, prioritize emergency/local crisis support and "
+            "involving a trusted person over routine CBT work."
+        ),
+        greeting="Where would you like to start today?",
+        tool_ids=[],
+        skill_ids=[],
+        filter_ids=[],
+        action_ids=[],
+        default_feature_ids=[],
+        capabilities={
+            "preferred_working_mode": CBT_THERAPIST_PREFERRED_WORKING_MODE,
+            "preferred_local_corpus_mode": "prefer",
+            "runtime_defaults": deepcopy(CBT_THERAPIST_RUNTIME_DEFAULTS),
+            "vendor_sampling_profile": "qwen3.6-27b-non-thinking",
+            "cbt_persona": True,
+        },
+        is_active=True,
+    )
+
+
+def ensure_cbt_therapist_persona_for_user(
+    user_id: str,
+    config_or_path: Any = None,
+) -> Optional[PersonaModel]:
+    persona_id = build_cbt_therapist_persona_id(user_id)
+    form = build_cbt_therapist_persona_form(config_or_path)
+
+    existing = Personas.get_persona_by_id_and_user_id(persona_id, user_id)
+    if existing is not None:
+        form.id = persona_id
+        return Personas.update_persona_by_id(persona_id, user_id, form)
+
+    form.id = persona_id
+    return Personas.insert_new_persona(user_id, form)
+
+
+def ensure_cbt_therapist_personas_for_admins(
+    config_or_path: Any = None,
+) -> list[PersonaModel]:
+    admins = Users.get_users(filter={"roles": ["admin"]}).get("users", [])
+    seeded: list[PersonaModel] = []
+    for admin in admins:
+        persona = ensure_cbt_therapist_persona_for_user(admin.id, config_or_path)
+        if persona is not None:
+            seeded.append(persona)
+    return seeded
+
+
 def get_persona_preferred_working_mode(
     effective_persona_state: Optional[dict[str, Any]],
 ) -> Optional[str]:
@@ -132,6 +249,25 @@ def _clean_persona_runtime_default(key: str, value: Any) -> Any:
             ]
             return normalized
         return None
+
+    if key in PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS:
+        return deepcopy(value) if isinstance(value, dict) else None
+
+    if key in PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS:
+        if isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    if key in PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS:
+        if isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     if isinstance(value, str):
         value = value.strip().lower()
@@ -174,6 +310,46 @@ def get_persona_runtime_param_defaults(
         defaults["local_corpus_mode"] = legacy_local_corpus_mode
 
     return defaults
+
+
+def apply_persona_runtime_param_defaults_to_chat_params(
+    chat_params: Optional[dict[str, Any]],
+    runtime_defaults: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    next_params = deepcopy(chat_params) if isinstance(chat_params, dict) else {}
+    if not isinstance(runtime_defaults, dict):
+        return next_params
+
+    explicit_working_mode = next_params.get("working_mode")
+    if isinstance(explicit_working_mode, str):
+        explicit_working_mode = explicit_working_mode.strip().lower()
+    else:
+        explicit_working_mode = None
+    default_working_mode = runtime_defaults.get("working_mode")
+    if isinstance(default_working_mode, str):
+        default_working_mode = default_working_mode.strip().lower()
+    else:
+        default_working_mode = None
+
+    for key, value in runtime_defaults.items():
+        if key not in PERSONA_RUNTIME_DEFAULT_KEYS:
+            continue
+        if (
+            key == "local_corpus_mode"
+            and explicit_working_mode
+            and default_working_mode
+            and explicit_working_mode != default_working_mode
+        ):
+            continue
+        if key in next_params:
+            current = next_params.get(key)
+            if current is not None and not (
+                isinstance(current, str) and not current.strip()
+            ):
+                continue
+        next_params[key] = deepcopy(value)
+
+    return next_params
 
 
 def build_persona_defaults_snapshot(persona: PersonaModel) -> dict[str, Any]:

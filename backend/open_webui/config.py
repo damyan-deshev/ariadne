@@ -3678,6 +3678,12 @@ CBT_CORPUS_ROOT = PersistentConfig(
     os.getenv("CBT_CORPUS_ROOT", "cbt_corpus"),
 )
 
+CBT_THERAPIST_MODEL = PersistentConfig(
+    "CBT_THERAPIST_MODEL",
+    "rag.cbt.therapist_model",
+    os.getenv("CBT_THERAPIST_MODEL", "Qwen3.6-27B-MTP-Q6_K"),
+)
+
 OFFSEC_CORPUS_ROOT = PersistentConfig(
     "OFFSEC_CORPUS_ROOT",
     "rag.offsec.root",

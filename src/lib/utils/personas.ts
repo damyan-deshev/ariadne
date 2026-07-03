@@ -6,8 +6,24 @@ export const PERSONA_RUNTIME_DEFAULT_KEYS = new Set([
 	'working_mode',
 	'local_corpus_mode',
 	'science_research_mode',
-	'science_attached_corpora'
+	'science_attached_corpora',
+	'temperature',
+	'top_p',
+	'top_k',
+	'min_p',
+	'presence_penalty',
+	'repeat_penalty',
+	'chat_template_kwargs'
 ]);
+const PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = new Set([
+	'temperature',
+	'top_p',
+	'min_p',
+	'presence_penalty',
+	'repeat_penalty'
+]);
+const PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = new Set(['top_k']);
+const PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS = new Set(['chat_template_kwargs']);
 
 export const buildPersonaDefaultsSnapshot = (persona: Persona) => ({
 	bound_model_id: persona.bound_model_id ?? null,
@@ -52,6 +68,28 @@ const cleanPersonaRuntimeDefault = (key: string, value: unknown) => {
 			return value.map((item) => `${item}`.trim().toLowerCase()).filter(Boolean);
 		}
 		return null;
+	}
+
+	if (PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS.has(key)) {
+		return value && typeof value === 'object' && !Array.isArray(value)
+			? structuredClone(value)
+			: null;
+	}
+
+	if (PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS.has(key)) {
+		if (typeof value === 'boolean') {
+			return null;
+		}
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+	}
+
+	if (PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS.has(key)) {
+		if (typeof value === 'boolean') {
+			return null;
+		}
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : null;
 	}
 
 	if (typeof value === 'string') {

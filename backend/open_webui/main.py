@@ -134,7 +134,9 @@ from open_webui.utils.lane_runtime import (
     normalize_science_research_mode,
 )
 from open_webui.utils.personas import (
+    apply_persona_runtime_param_defaults_to_chat_params,
     build_persona_defaults_snapshot,
+    ensure_cbt_therapist_personas_for_admins,
     ensure_morning_news_personas_for_admins,
     get_persona_preferred_working_mode,
     get_persona_runtime_param_defaults,
@@ -359,6 +361,7 @@ from open_webui.config import (
     ENABLE_LOCAL_CORPUS_TOOLS,
     LOCAL_CORPUS_ROOT,
     CBT_CORPUS_ROOT,
+    CBT_THERAPIST_MODEL,
     OFFSEC_CORPUS_ROOT,
     NEWS_ENABLED,
     NEWS_ARTICLE_STORE_ROOT,
@@ -797,6 +800,11 @@ async def lifespan(app: FastAPI):
         ensure_morning_news_personas_for_admins(app.state.config)
     except Exception as exc:
         log.warning("Failed to seed Morning News persona: %s", exc)
+
+    try:
+        ensure_cbt_therapist_personas_for_admins(app.state.config)
+    except Exception as exc:
+        log.warning("Failed to seed CBT Therapist persona: %s", exc)
 
     try:
         report = ensure_science_lane_skills()
@@ -1337,6 +1345,7 @@ app.state.config.ENABLE_SAME_TURN_TOOL_OUTPUT_COMPACTION = (
 app.state.config.ENABLE_LOCAL_CORPUS_TOOLS = ENABLE_LOCAL_CORPUS_TOOLS
 app.state.config.LOCAL_CORPUS_ROOT = LOCAL_CORPUS_ROOT
 app.state.config.CBT_CORPUS_ROOT = CBT_CORPUS_ROOT
+app.state.config.CBT_THERAPIST_MODEL = CBT_THERAPIST_MODEL
 app.state.config.OFFSEC_CORPUS_ROOT = OFFSEC_CORPUS_ROOT
 app.state.config.NEWS_ENABLED = NEWS_ENABLED
 app.state.config.NEWS_ARTICLE_STORE_ROOT = NEWS_ARTICLE_STORE_ROOT
@@ -2088,6 +2097,12 @@ async def chat_completion(
         persona_runtime_param_defaults = get_persona_runtime_param_defaults(
             (persona_state or {}).get("effective")
         )
+        if persona_runtime_param_defaults:
+            chat_params = apply_persona_runtime_param_defaults_to_chat_params(
+                chat_params,
+                persona_runtime_param_defaults,
+            )
+            form_data["params"] = chat_params
 
         def runtime_param_value(key: str) -> Any:
             if key in chat_params:

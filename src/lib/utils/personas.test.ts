@@ -10,7 +10,14 @@ describe('persona runtime param defaults', () => {
 					working_mode: 'CBT',
 					local_corpus_mode: 'prefer',
 					science_research_mode: 'deep',
-					science_attached_corpora: ['Medicine', '']
+					science_attached_corpora: ['Medicine', ''],
+					temperature: '0.7',
+					top_p: 0.8,
+					top_k: '20',
+					min_p: 0,
+					presence_penalty: 1.5,
+					repeat_penalty: 1,
+					chat_template_kwargs: { enable_thinking: false }
 				},
 				cbt_persona: true
 			})
@@ -18,7 +25,14 @@ describe('persona runtime param defaults', () => {
 			working_mode: 'cbt',
 			local_corpus_mode: 'prefer',
 			science_research_mode: 'deep',
-			science_attached_corpora: ['medicine']
+			science_attached_corpora: ['medicine'],
+			temperature: 0.7,
+			top_p: 0.8,
+			top_k: 20,
+			min_p: 0,
+			presence_penalty: 1.5,
+			repeat_penalty: 1,
+			chat_template_kwargs: { enable_thinking: false }
 		});
 	});
 
