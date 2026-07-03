@@ -4,7 +4,7 @@ Status: planned
 
 Owner: local fork
 
-Last updated: 2026-07-03
+Last updated: 2026-07-04
 
 ## Goal
 
@@ -115,6 +115,10 @@ contains absolute Mac paths. Before copying it to Strix:
 There is no existing dedicated CBT diary, homework, thought-record, mood-log,
 exposure-log, or behavioral-experiment tooling.
 
+Research checkpoint:
+
+- `work/cbt-therapist-lane/research-cbt-client-tooling.md`
+
 For the first pass, generic notes can be used as a lightweight substrate for
 structured markdown records if needed. That is only a prototype path.
 
@@ -144,6 +148,8 @@ Add focused tests for:
 
 - Inspection notes:
   `docs/cbt-lane-inspection-notes.md`
+- CBT client tooling research:
+  `work/cbt-therapist-lane/research-cbt-client-tooling.md`
 - English eval pack:
   `/Volumes/External/projects/cbt-therapist/eval/cbt_eval_v01.jsonl`
 - Bulgarian eval pack:
