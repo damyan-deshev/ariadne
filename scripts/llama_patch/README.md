@@ -179,8 +179,10 @@ The smoke test checks that:
 
 ## Patch Semantics
 
-The patched image applies every `*.patch` file in `patches/`, sorted by file
-name.
+The patched image and backend manager apply every `*.patch` file in
+`patches/`, sorted by file name. Set `ARIADNE_LLAMA_PATCH_FILE` only when an
+old single-patch debug workflow is intentional; normal builds should keep the
+whole queue and record every patch hash in the candidate manifest.
 
 The server patch intentionally does not claim OpenAI-compatible logprobs for
 tool-call delta chunks. It only emits logprobs on visible `delta.content`
@@ -215,7 +217,7 @@ Common operations on the inference box:
 ```bash
 ~/models/ariadne-llama-backend.sh status
 ~/models/ariadne-llama-backend.sh list
-~/models/ariadne-llama-backend.sh import-current --promote
+toolbox run -c llama-rocm-7.14 ~/models/ariadne-llama-backend.sh import-current --promote
 ~/models/ariadne-llama-backend.sh build --lane main --toolbox llama-rocm-7.14
 ~/models/ariadne-llama-backend.sh smoke --candidate <build-id> --profile dual --port 1235
 ~/models/ariadne-llama-backend.sh promote --candidate <build-id>
@@ -227,6 +229,15 @@ The lanes are:
 - `pinned`: exact known-good MTP commit, backed by a cached local source copy.
 - `mtp-pr`: floating canary for the current MTP PR branch.
 - `main`: upstream llama.cpp `master`, intended for after MTP lands upstream.
+
+The manager defaults to `llama-rocm-7.14`, uses `--load-mode mmap` for canary
+smokes on current llama.cpp builds, and runs the forced tool-call logprobs smoke
+unless `ARIADNE_LLAMA_FORCE_TOOL_SMOKE=0` is set.
+
+Run `import-current` from inside the same toolbox that produced the binary when
+importing a ROCm 7.14 build. Those binaries can depend on a newer GLIBC than the
+bare host provides, while the promoted production worker runs from the toolbox
+runtime namespace.
 
 The manager does not auto-promote, does not replace `/usr/local/bin/llama-server`,
 and does not delete promoted builds. Canary smoke tests run on a separate port

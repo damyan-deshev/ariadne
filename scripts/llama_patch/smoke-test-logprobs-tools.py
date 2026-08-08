@@ -77,7 +77,12 @@ def tool_schema() -> list[dict[str, Any]]:
     ]
 
 
-def validate_stream(events: list[dict[str, Any]], *, require_content_logprobs: bool) -> dict[str, int]:
+def validate_stream(
+    events: list[dict[str, Any]],
+    *,
+    require_content_logprobs: bool,
+    require_tool_call: bool = False,
+) -> dict[str, int]:
     counters = {
         "chunks": 0,
         "content_chunks": 0,
@@ -111,6 +116,9 @@ def validate_stream(events: list[dict[str, Any]], *, require_content_logprobs: b
     if require_content_logprobs and counters["content_logprob_chunks"] == 0:
         raise AssertionError("no content chunk carried logprobs")
 
+    if require_tool_call and counters["tool_call_chunks"] == 0:
+        raise AssertionError("forced tool-call case produced no tool_call delta")
+
     return counters
 
 
@@ -124,6 +132,7 @@ def run_case(
     tools: bool,
     force_tool: bool,
     require_content_logprobs: bool,
+    require_tool_call: bool = False,
 ) -> dict[str, int]:
     payload: dict[str, Any] = {
         "model": model,
@@ -139,7 +148,11 @@ def run_case(
         payload["tool_choice"] = {"type": "function", "function": {"name": "noop"}} if force_tool else "auto"
 
     events = post_sse(f"{endpoint}/v1/chat/completions", payload, timeout)
-    counters = validate_stream(events, require_content_logprobs=require_content_logprobs)
+    counters = validate_stream(
+        events,
+        require_content_logprobs=require_content_logprobs,
+        require_tool_call=require_tool_call,
+    )
     print(f"PASS {name}: {counters}")
     return counters
 
@@ -193,6 +206,7 @@ def main() -> int:
             tools=True,
             force_tool=True,
             require_content_logprobs=False,
+            require_tool_call=True,
         )
 
     return 0

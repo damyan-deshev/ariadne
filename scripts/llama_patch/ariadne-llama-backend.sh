@@ -7,7 +7,8 @@ if command -v readlink >/dev/null 2>&1; then
   [[ -n "$resolved_path" ]] && SCRIPT_PATH="$resolved_path"
 fi
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-PATCH_FILE="${ARIADNE_LLAMA_PATCH_FILE:-$SCRIPT_DIR/patches/0001-server-allow-streamed-tool-calls-with-content-logprobs.patch}"
+PATCH_DIR="${ARIADNE_LLAMA_PATCH_DIR:-$SCRIPT_DIR/patches}"
+PATCH_FILE="${ARIADNE_LLAMA_PATCH_FILE:-}"
 
 STORE="${ARIADNE_LLAMA_STORE:-$HOME/.local/opt/ariadne-llama}"
 BUILDS_DIR="$STORE/builds"
@@ -16,7 +17,7 @@ WORK_DIR="$STORE/work"
 LOG_DIR="${ARIADNE_LLAMA_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ariadne-llama-backend/logs}"
 LOCK_FILE="$STORE/.promotion.lock"
 
-DEFAULT_TOOLBOX="${ARIADNE_LLAMA_TOOLBOX:-llama-rocm-7.2.2}"
+DEFAULT_TOOLBOX="${ARIADNE_LLAMA_TOOLBOX:-llama-rocm-7.14}"
 DEFAULT_CANARY_PORT="${ARIADNE_LLAMA_CANARY_PORT:-1235}"
 PRODUCTION_PORT="${ARIADNE_LLAMA_PRODUCTION_PORT:-1234}"
 
@@ -44,6 +45,7 @@ BATCH="${ARIADNE_LLAMA_BATCH:-2048}"
 UBATCH_SIZE="${ARIADNE_LLAMA_UBATCH_SIZE:-512}"
 CACHE_K="${ARIADNE_LLAMA_CACHE_K:-q8_0}"
 CACHE_V="${ARIADNE_LLAMA_CACHE_V:-q8_0}"
+FORCE_TOOL_SMOKE="${ARIADNE_LLAMA_FORCE_TOOL_SMOKE:-1}"
 
 timestamp() {
   date '+%Y-%m-%dT%H:%M:%S%z'
@@ -83,9 +85,12 @@ Usage:
 
 Environment:
   ARIADNE_LLAMA_STORE              Backend store. Default: ~/.local/opt/ariadne-llama
-  ARIADNE_LLAMA_TOOLBOX            Default toolbox. Default: llama-rocm-7.2.2
+  ARIADNE_LLAMA_TOOLBOX            Default toolbox. Default: llama-rocm-7.14
   ARIADNE_LLAMA_PINNED_REF         Known-good MTP ref.
   ARIADNE_LLAMA_PINNED_SEED_SOURCE Local seed clone used to cache pinned source.
+  ARIADNE_LLAMA_PATCH_DIR          Patch queue dir. Default: scripts/llama_patch/patches.
+  ARIADNE_LLAMA_PATCH_FILE         Optional single-patch override for old workflows.
+  ARIADNE_LLAMA_FORCE_TOOL_SMOKE   Run forced tool-call logprobs smoke. Default: 1.
 USAGE
 }
 
@@ -244,17 +249,84 @@ ensure_source_cache() {
   printf '%s\n' "$source_dir"
 }
 
+patch_queue_files() {
+  if [[ -n "$PATCH_FILE" ]]; then
+    [[ -f "$PATCH_FILE" ]] || die "Patch file not found: $PATCH_FILE"
+    printf '%s\n' "$PATCH_FILE"
+    return 0
+  fi
+
+  [[ -d "$PATCH_DIR" ]] || die "Patch directory not found: $PATCH_DIR"
+  find "$PATCH_DIR" -maxdepth 1 -type f -name '*.patch' | sort
+}
+
+load_patch_queue() {
+  mapfile -t PATCH_QUEUE < <(patch_queue_files)
+  [[ "${#PATCH_QUEUE[@]}" -gt 0 ]] || die "No patch files found in $PATCH_DIR"
+}
+
+patch_queue_summary() {
+  local -a PATCH_QUEUE=()
+  load_patch_queue
+  local patch_file name hash summary=""
+  for patch_file in "${PATCH_QUEUE[@]}"; do
+    name="$(basename "$patch_file")"
+    hash="$(sha256_file "$patch_file")"
+    [[ -z "$summary" ]] || summary+=","
+    summary+="$name:$hash"
+  done
+  printf '%s\n' "$summary"
+}
+
+record_patch_queue_manifest() {
+  local manifest="$1"
+  local -a PATCH_QUEUE=()
+  load_patch_queue
+  local patch_file name hash names="" summary=""
+
+  for patch_file in "${PATCH_QUEUE[@]}"; do
+    name="$(basename "$patch_file")"
+    hash="$(sha256_file "$patch_file")"
+    [[ -z "$names" ]] || names+=","
+    [[ -z "$summary" ]] || summary+=","
+    names+="$name"
+    summary+="$name:$hash"
+  done
+
+  manifest_set "$manifest" "PATCH_DIR" "$PATCH_DIR"
+  manifest_set "$manifest" "PATCH_FILE" "$PATCH_FILE"
+  manifest_set "$manifest" "PATCH_COUNT" "${#PATCH_QUEUE[@]}"
+  manifest_set "$manifest" "PATCH_QUEUE" "$names"
+  manifest_set "$manifest" "PATCH_QUEUE_SHA256" "$summary"
+  manifest_set "$manifest" "PATCH_SHA256" "$summary"
+}
+
 apply_patch_queue() {
   local src="$1"
-  [[ -f "$PATCH_FILE" ]] || die "Patch file not found: $PATCH_FILE"
-  git -C "$src" apply --3way --check "$PATCH_FILE"
-  git -C "$src" apply --3way "$PATCH_FILE"
+  local -a PATCH_QUEUE=()
+  load_patch_queue
+  local patch_file
+  for patch_file in "${PATCH_QUEUE[@]}"; do
+    git -C "$src" apply --3way --check "$patch_file"
+    git -C "$src" apply --3way "$patch_file"
+  done
 }
 
 backend_ld_library_path() {
   local prefix="$1"
-  printf '%s:%s:%s:/opt/rocm/lib:/opt/rocm-7.2.2/lib' \
+  printf '%s:%s:%s:/opt/rocm/lib:/opt/rocm-7.14/lib:/opt/rocm-7.2.3/lib:/opt/rocm-7.2.2/lib:/usr/lib64:/usr/lib' \
     "$prefix/lib64" "$prefix/lib" "$prefix/bin"
+}
+
+copy_backend_libs() {
+  local prefix="$1"
+  shift
+
+  local lib_dir
+  for lib_dir in "$@"; do
+    [[ -d "$lib_dir" ]] || continue
+    find "$lib_dir" -maxdepth 1 \( -type f -o -type l \) -name 'lib*.so*' -exec cp -P {} "$prefix/lib/" \; || true
+  done
 }
 
 append_gpu_info() {
@@ -301,6 +373,7 @@ cmd_build_inside() {
     -DLLAMA_BUILD_TESTS=OFF
     -DLLAMA_BUILD_EXAMPLES=ON
     -DLLAMA_BUILD_SERVER=ON
+    -DLLAMA_USE_PREBUILT_UI=OFF
   )
 
   case "$backend" in
@@ -330,24 +403,44 @@ cmd_build_inside() {
         export HIPCXX="$(hipconfig -l)/clang"
         export HIP_PATH="$(hipconfig -R)"
       fi
+      export HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH:-$(find /usr/lib64/rocm /usr/lib/rocm /opt/rocm -path '*/amdgcn/bitcode' -type d 2>/dev/null | head -n1)}"
+      if [[ -z "$HIP_DEVICE_LIB_PATH" ]]; then
+        die "Could not locate ROCm device bitcode libraries"
+      fi
       cmake_args+=(
         -DGGML_HIP=ON
+        "-DCMAKE_HIP_FLAGS=--rocm-path=$ROCM_PATH --rocm-device-lib-path=$HIP_DEVICE_LIB_PATH"
         -DAMDGPU_TARGETS=gfx1151
         -DLLAMA_HIP_UMA=ON
         -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON
       )
       ;;
     rocm*)
-      export ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
-      export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
-      export HIP_CLANG_PATH="${HIP_CLANG_PATH:-$ROCM_PATH/llvm/bin}"
-      export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
+      if [[ -d /usr/lib64/cmake/hip-lang || -d /usr/lib/cmake/hip-lang ]]; then
+        export ROCM_PATH="/usr"
+      elif command -v hipconfig >/dev/null 2>&1 && [[ -n "$(hipconfig -R 2>/dev/null)" ]]; then
+        export ROCM_PATH="${ROCM_PATH:-$(hipconfig -R)}"
+      else
+        export ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
+      fi
+      export HIP_PATH="$ROCM_PATH"
+      if command -v hipconfig >/dev/null 2>&1 && [[ -n "$(hipconfig -l 2>/dev/null)" ]]; then
+        export HIP_CLANG_PATH="${HIP_CLANG_PATH:-$(hipconfig -l)}"
+      else
+        export HIP_CLANG_PATH="${HIP_CLANG_PATH:-$ROCM_PATH/llvm/bin}"
+      fi
+      export HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH:-$(find /usr/lib64/rocm /usr/lib/rocm /opt/rocm -path '*/amdgcn/bitcode' -type d 2>/dev/null | head -n1)}"
+      if [[ -z "$HIP_DEVICE_LIB_PATH" ]]; then
+        die "Could not locate ROCm device bitcode libraries"
+      fi
+      export PATH="/opt/rocm/bin:/opt/rocm/core/bin:$HIP_CLANG_PATH:$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
       cmake_args+=(
         -DGGML_HIP=ON
-        "-DCMAKE_HIP_FLAGS=--rocm-path=$ROCM_PATH -mllvm --amdgpu-unroll-threshold-local=600"
+        "-DCMAKE_HIP_FLAGS=--rocm-path=$ROCM_PATH --rocm-device-lib-path=$HIP_DEVICE_LIB_PATH -mllvm --amdgpu-unroll-threshold-local=600"
         -DAMDGPU_TARGETS=gfx1151
         -DLLAMA_HIP_UMA=ON
         -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON
+        "-DCMAKE_HIP_COMPILER_ROCM_ROOT=$ROCM_PATH"
         "-DROCM_PATH=$ROCM_PATH"
         "-DHIP_PATH=$HIP_PATH"
         -DHIP_PLATFORM=amd
@@ -399,7 +492,7 @@ cmd_build() {
   tb_cmd="$(toolbox_cmd)" || die "Missing toolbox/distrobox command"
 
   lane_config "$lane"
-  local resolved_ref source_cache short build_id prefix work src build_dir manifest build_log patch_hash base_digest
+  local resolved_ref source_cache short build_id prefix work src build_dir manifest build_log base_digest
   resolved_ref="$(resolve_ref "$LANE_REPO" "$LANE_BRANCH" "${ref_override:-$LANE_REF}")"
   short="$(short_ref "$resolved_ref")"
   source_cache="$(ensure_source_cache "$lane" "$LANE_REPO" "$LANE_BRANCH" "$resolved_ref")"
@@ -421,7 +514,6 @@ cmd_build() {
   git -C "$src" submodule update --init --recursive
   apply_patch_queue "$src"
 
-  patch_hash="$(sha256_file "$PATCH_FILE")"
   base_digest="$(podman image inspect "docker.io/kyuz0/amd-strix-halo-toolboxes:${toolbox#llama-}" --format '{{.Digest}}' 2>/dev/null || true)"
 
   : >"$manifest"
@@ -434,8 +526,7 @@ cmd_build() {
   manifest_set "$manifest" "SOURCE_CACHE" "$source_cache"
   manifest_set "$manifest" "TOOLBOX" "$toolbox"
   manifest_set "$manifest" "BASE_IMAGE_DIGEST" "$base_digest"
-  manifest_set "$manifest" "PATCH_FILE" "$PATCH_FILE"
-  manifest_set "$manifest" "PATCH_SHA256" "$patch_hash"
+  record_patch_queue_manifest "$manifest"
   manifest_set "$manifest" "BUILD_STARTED_AT" "$(timestamp)"
   manifest_set "$manifest" "BUILD_LOG" "$build_log"
 
@@ -485,7 +576,7 @@ cmd_import_current() {
   init_store
   [[ -x "$source_bin" ]] || die "Source llama-server is not executable: $source_bin"
 
-  local short prefix manifest source_dir source_bin_dir patch_hash version ld_path
+  local short prefix manifest source_dir source_bin_dir source_prefix version ld_path
   short="$(short_ref "$ref")"
   if [[ -z "$build_id" ]]; then
     build_id="$(safe_id "$(build_stamp)-${lane}-${short}-${toolbox}-imported")"
@@ -497,7 +588,11 @@ cmd_import_current() {
   mkdir -p "$prefix/bin" "$prefix/lib" "$prefix/lib64"
   cp -P "$source_bin" "$prefix/bin/llama-server"
   source_bin_dir="$(cd "$(dirname "$source_bin")" && pwd)"
-  find "$source_bin_dir" -maxdepth 1 \( -type f -o -type l \) -name 'lib*.so*' -exec cp -P {} "$prefix/lib/" \; || true
+  source_prefix="$(cd "$source_bin_dir/.." && pwd)"
+  copy_backend_libs "$prefix" \
+    "$source_bin_dir" \
+    "$source_prefix/lib" \
+    "$source_prefix/lib64"
 
   source_dir=""
   if [[ -d "$source_tree/.git" ]]; then
@@ -511,9 +606,10 @@ cmd_import_current() {
     source_dir="$source_id"
   fi
 
-  patch_hash="$(sha256_file "$PATCH_FILE")"
   ld_path="$(backend_ld_library_path "$prefix")"
-  version="$(LD_LIBRARY_PATH="$ld_path" "$prefix/bin/llama-server" --version 2>&1 | head -n 5 | paste -sd ';' -)"
+  if ! version="$(LD_LIBRARY_PATH="$ld_path" "$prefix/bin/llama-server" --version 2>&1 | head -n 5 | paste -sd ';' -)"; then
+    die "Imported llama-server failed --version after library copy: $prefix/bin/llama-server"
+  fi
 
   : >"$manifest"
   manifest_set "$manifest" "BUILD_ID" "$build_id"
@@ -525,8 +621,7 @@ cmd_import_current() {
   manifest_set "$manifest" "SOURCE_CACHE" "$source_dir"
   manifest_set "$manifest" "SOURCE_BIN" "$source_bin"
   manifest_set "$manifest" "TOOLBOX" "$toolbox"
-  manifest_set "$manifest" "PATCH_FILE" "$PATCH_FILE"
-  manifest_set "$manifest" "PATCH_SHA256" "$patch_hash"
+  record_patch_queue_manifest "$manifest"
   manifest_set "$manifest" "LLAMA_SERVER_VERSION" "$version"
   manifest_set "$manifest" "BUILD_STARTED_AT" "$(timestamp)"
   manifest_set "$manifest" "BUILD_FINISHED_AT" "$(timestamp)"
@@ -842,7 +937,7 @@ cmd_smoke() {
   local canary_cmd
   canary_cmd="$(printf 'export LD_LIBRARY_PATH=%q; exec %q ' "$ld_path:\${LD_LIBRARY_PATH:-}" "$prefix/bin/llama-server")"
   canary_cmd+="$(printf '%q ' \
-    --no-mmap \
+    --load-mode mmap \
     -ngl 999 \
     -fa on \
     -c "$CTX" \
@@ -886,10 +981,16 @@ cmd_smoke() {
     die "Canary log does not show MTP/spec activity for $TEXT_MTP_MODEL: $log_file"
   fi
 
-  "$SCRIPT_DIR/smoke-test-logprobs-tools.py" \
-    --endpoint "$endpoint" \
-    --model "$TEXT_MTP_MODEL" \
-    --timeout 180 >>"$log_file" 2>&1
+  local logprob_smoke_args=(
+    "$SCRIPT_DIR/smoke-test-logprobs-tools.py"
+    --endpoint "$endpoint"
+    --model "$TEXT_MTP_MODEL"
+    --timeout 180
+  )
+  if [[ "$FORCE_TOOL_SMOKE" != "0" ]]; then
+    logprob_smoke_args+=(--force-tool-call)
+  fi
+  "${logprob_smoke_args[@]}" >>"$log_file" 2>&1
 
   if [[ "$profile" == "dual" ]]; then
     load_model "$endpoint" "$VISION_MODEL"
