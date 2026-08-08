@@ -4077,6 +4077,14 @@ def _build_web_search_conversation_context(
     return context
 
 
+def _reasoning_disabled_request_params() -> dict[str, Any]:
+    return {
+        "think": False,
+        "reasoning_effort": "none",
+        "reasoning_budget_tokens": 0,
+    }
+
+
 async def _run_active_model_web_query_generation(
     request: Request,
     *,
@@ -4107,14 +4115,7 @@ async def _run_active_model_web_query_generation(
         "temperature": 0.0,
         "max_completion_tokens": max(64, int(max_completion_tokens)),
         "think": False,
-        "params": {
-            "think": False,
-            "custom_params": {
-                "chat_template_kwargs": {
-                    "enable_thinking": False,
-                }
-            },
-        },
+        "params": _reasoning_disabled_request_params(),
         "metadata": {
             **(request.state.metadata if hasattr(request.state, "metadata") else {}),
             "task": "web_search_query_generation_active_model",
@@ -4202,14 +4203,7 @@ async def _run_web_search_rewriter(
             "temperature": temperature,
             "max_completion_tokens": max_completion_tokens,
             "think": False,
-            "params": {
-                "think": False,
-                "custom_params": {
-                    "chat_template_kwargs": {
-                        "enable_thinking": False,
-                    }
-                },
-            },
+            "params": _reasoning_disabled_request_params(),
             "metadata": {
                 **(
                     request.state.metadata
@@ -4480,14 +4474,7 @@ async def _run_web_search_evidence_judge(
             "temperature": 0.0,
             "max_completion_tokens": max(32, int(max_completion_tokens)),
             "think": False,
-            "params": {
-                "think": False,
-                "custom_params": {
-                    "chat_template_kwargs": {
-                        "enable_thinking": False,
-                    }
-                },
-            },
+            "params": _reasoning_disabled_request_params(),
             "metadata": {
                 **(
                     request.state.metadata

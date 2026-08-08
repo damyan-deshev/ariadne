@@ -17,7 +17,9 @@ describe('persona runtime param defaults', () => {
 					min_p: 0,
 					presence_penalty: 1.5,
 					repeat_penalty: 1,
-					chat_template_kwargs: { enable_thinking: false }
+					reasoning_effort: 'none',
+					reasoning_budget_tokens: '0',
+					chat_template_kwargs: { enable_thinking: true }
 				},
 				cbt_persona: true
 			})
@@ -32,7 +34,9 @@ describe('persona runtime param defaults', () => {
 			min_p: 0,
 			presence_penalty: 1.5,
 			repeat_penalty: 1,
-			chat_template_kwargs: { enable_thinking: false }
+			reasoning_effort: 'none',
+			reasoning_budget_tokens: 0,
+			chat_template_kwargs: { enable_thinking: true }
 		});
 	});
 

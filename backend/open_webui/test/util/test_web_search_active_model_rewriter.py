@@ -55,10 +55,13 @@ async def test_run_web_search_rewriter_uses_active_model_only_and_bypasses_syste
             {
                 "model": form_data.get("model"),
                 "think": form_data.get("think"),
-                "enable_thinking": form_data.get("params", {})
+                "reasoning_effort": form_data.get("params", {}).get("reasoning_effort"),
+                "reasoning_budget_tokens": form_data.get("params", {}).get(
+                    "reasoning_budget_tokens"
+                ),
+                "chat_template_kwargs": form_data.get("params", {})
                 .get("custom_params", {})
-                .get("chat_template_kwargs", {})
-                .get("enable_thinking"),
+                .get("chat_template_kwargs"),
                 "bypass_system_prompt": bypass_system_prompt,
             }
         )
@@ -107,7 +110,9 @@ async def test_run_web_search_rewriter_uses_active_model_only_and_bypasses_syste
     assert all(call["model"] == "active-model" for call in calls)
     assert all(call["bypass_system_prompt"] is True for call in calls)
     assert all(call["think"] is False for call in calls)
-    assert all(call["enable_thinking"] is False for call in calls)
+    assert all(call["reasoning_effort"] == "none" for call in calls)
+    assert all(call["reasoning_budget_tokens"] == 0 for call in calls)
+    assert all(call["chat_template_kwargs"] is None for call in calls)
     assert meta["model_used"] == "active-model"
     assert meta["fallback_used"] is False
     assert meta["retry_count"] == 0
@@ -224,10 +229,13 @@ async def test_active_model_query_generation_retries_and_bypasses_system_prompt(
                 "model": form_data.get("model"),
                 "bypass_system_prompt": bypass_system_prompt,
                 "think": form_data.get("think"),
-                "enable_thinking": form_data.get("params", {})
+                "reasoning_effort": form_data.get("params", {}).get("reasoning_effort"),
+                "reasoning_budget_tokens": form_data.get("params", {}).get(
+                    "reasoning_budget_tokens"
+                ),
+                "chat_template_kwargs": form_data.get("params", {})
                 .get("custom_params", {})
-                .get("chat_template_kwargs", {})
-                .get("enable_thinking"),
+                .get("chat_template_kwargs"),
             }
         )
         if len(calls) == 1:
@@ -259,7 +267,9 @@ async def test_active_model_query_generation_retries_and_bypasses_system_prompt(
     assert all(call["model"] == "active-model" for call in calls)
     assert all(call["bypass_system_prompt"] is True for call in calls)
     assert all(call["think"] is False for call in calls)
-    assert all(call["enable_thinking"] is False for call in calls)
+    assert all(call["reasoning_effort"] == "none" for call in calls)
+    assert all(call["reasoning_budget_tokens"] == 0 for call in calls)
+    assert all(call["chat_template_kwargs"] is None for call in calls)
     assert meta["model_used"] == "active-model"
     assert meta["retry_count"] == 1
 

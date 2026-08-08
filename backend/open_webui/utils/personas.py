@@ -29,6 +29,8 @@ PERSONA_RUNTIME_DEFAULT_KEYS = {
     "min_p",
     "presence_penalty",
     "repeat_penalty",
+    "reasoning_effort",
+    "reasoning_budget_tokens",
     "chat_template_kwargs",
 }
 PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = {
@@ -38,7 +40,7 @@ PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = {
     "presence_penalty",
     "repeat_penalty",
 }
-PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = {"top_k"}
+PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = {"top_k", "reasoning_budget_tokens"}
 PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS = {"chat_template_kwargs"}
 
 MORNING_NEWS_PERSONA_NAME = "Morning News"
@@ -58,7 +60,8 @@ CBT_THERAPIST_RUNTIME_DEFAULTS = {
     "min_p": 0.0,
     "presence_penalty": 1.5,
     "repeat_penalty": 1.0,
-    "chat_template_kwargs": {"enable_thinking": False},
+    "reasoning_effort": "none",
+    "reasoning_budget_tokens": 0,
 }
 
 

@@ -373,8 +373,36 @@
 		paramsHydratedFromSettings = true;
 	}
 
-	$: chatThinkingEnabled =
-		(params?.custom_params?.chat_template_kwargs?.enable_thinking ?? false) === true;
+	const getChatCustomParams = (value: Record<string, unknown> | null | undefined) => {
+		const customParams = value?.custom_params;
+		return customParams && typeof customParams === 'object' && !Array.isArray(customParams)
+			? (customParams as Record<string, unknown>)
+			: {};
+	};
+
+	const getReasoningBudgetOverride = (value: Record<string, unknown> | null | undefined) => {
+		const customParams = getChatCustomParams(value);
+		const rawValue = customParams.reasoning_budget_tokens ?? customParams.thinking_budget_tokens;
+		if (typeof rawValue === 'number') {
+			return Number.isFinite(rawValue) ? rawValue : null;
+		}
+		if (typeof rawValue === 'string' && rawValue.trim()) {
+			const parsed = Number(rawValue);
+			return Number.isFinite(parsed) ? parsed : null;
+		}
+		return null;
+	};
+
+	const getChatThinkingEnabled = (value: Record<string, unknown> | null | undefined) => {
+		const chatTemplateKwargs = getChatCustomParams(value).chat_template_kwargs;
+		const chatTemplateKwargsRecord =
+			chatTemplateKwargs && typeof chatTemplateKwargs === 'object' && !Array.isArray(chatTemplateKwargs)
+				? (chatTemplateKwargs as Record<string, unknown>)
+				: {};
+		return chatTemplateKwargsRecord.enable_thinking === true && getReasoningBudgetOverride(value) !== 0;
+	};
+
+	$: chatThinkingEnabled = getChatThinkingEnabled(params);
 	$: chatLedgerAgenticEnabled = (params?.ledger_mode ?? null) === 'agentic';
 	$: chatFocusedSearchEnabled = (params?.focused_search_mode ?? false) === true;
 	$: chatWorkingMode = CHAT_WORKING_MODES.includes(params?.working_mode ?? '')
@@ -409,11 +437,17 @@
 				? customParams.chat_template_kwargs
 				: {};
 
+		delete customParams.thinking_budget_tokens;
+
 		if (enabled) {
+			delete customParams.reasoning_effort;
+			customParams.reasoning_budget_tokens = -1;
 			chatTemplateKwargs.enable_thinking = true;
 			customParams.chat_template_kwargs = chatTemplateKwargs;
 			nextParams.custom_params = customParams;
 		} else {
+			customParams.reasoning_effort = 'none';
+			customParams.reasoning_budget_tokens = 0;
 			delete chatTemplateKwargs.enable_thinking;
 
 			if (Object.keys(chatTemplateKwargs).length > 0) {
@@ -422,11 +456,7 @@
 				delete customParams.chat_template_kwargs;
 			}
 
-			if (Object.keys(customParams).length > 0) {
-				nextParams.custom_params = customParams;
-			} else {
-				delete nextParams.custom_params;
-			}
+			nextParams.custom_params = customParams;
 		}
 
 		params = nextParams;

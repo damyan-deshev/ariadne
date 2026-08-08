@@ -13,6 +13,8 @@ export const PERSONA_RUNTIME_DEFAULT_KEYS = new Set([
 	'min_p',
 	'presence_penalty',
 	'repeat_penalty',
+	'reasoning_effort',
+	'reasoning_budget_tokens',
 	'chat_template_kwargs'
 ]);
 const PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = new Set([
@@ -22,7 +24,7 @@ const PERSONA_NUMERIC_RUNTIME_DEFAULT_KEYS = new Set([
 	'presence_penalty',
 	'repeat_penalty'
 ]);
-const PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = new Set(['top_k']);
+const PERSONA_INTEGER_RUNTIME_DEFAULT_KEYS = new Set(['top_k', 'reasoning_budget_tokens']);
 const PERSONA_OBJECT_RUNTIME_DEFAULT_KEYS = new Set(['chat_template_kwargs']);
 
 export const buildPersonaDefaultsSnapshot = (persona: Persona) => ({

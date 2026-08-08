@@ -24,7 +24,8 @@ def test_cbt_therapist_persona_form_uses_cbt_runtime_defaults():
         "min_p": 0.0,
         "presence_penalty": 1.5,
         "repeat_penalty": 1.0,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_effort": "none",
+        "reasoning_budget_tokens": 0,
     }
     assert "self-harm, plan, intent, means" in form.system_prompt
     assert "Do not merge CBT corpus evidence with the medical or offsec corpora" in (
@@ -32,7 +33,7 @@ def test_cbt_therapist_persona_form_uses_cbt_runtime_defaults():
     )
 
 
-def test_persona_runtime_defaults_include_sampling_and_chat_template_kwargs():
+def test_persona_runtime_defaults_include_sampling_and_reasoning_controls():
     defaults = persona_utils.get_persona_runtime_param_defaults(
         {
             "capabilities": {
@@ -45,7 +46,8 @@ def test_persona_runtime_defaults_include_sampling_and_chat_template_kwargs():
                     "min_p": 0,
                     "presence_penalty": 1.5,
                     "repeat_penalty": 1,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    "reasoning_effort": "none",
+                    "reasoning_budget_tokens": "0",
                     "ignored": "value",
                 }
             }
@@ -61,7 +63,8 @@ def test_persona_runtime_defaults_include_sampling_and_chat_template_kwargs():
         "min_p": 0.0,
         "presence_penalty": 1.5,
         "repeat_penalty": 1.0,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_effort": "none",
+        "reasoning_budget_tokens": 0,
     }
 
 
@@ -71,13 +74,15 @@ def test_apply_persona_runtime_defaults_preserves_explicit_chat_params():
         "local_corpus_mode": "prefer",
         "temperature": 0.7,
         "top_p": 0.8,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_effort": "none",
+        "reasoning_budget_tokens": 0,
     }
 
     params = persona_utils.apply_persona_runtime_param_defaults_to_chat_params(
         {
             "working_mode": "general",
             "temperature": 0.2,
+            "reasoning_effort": "high",
             "chat_template_kwargs": {"enable_thinking": True},
         },
         defaults,
@@ -87,5 +92,7 @@ def test_apply_persona_runtime_defaults_preserves_explicit_chat_params():
         "working_mode": "general",
         "temperature": 0.2,
         "top_p": 0.8,
+        "reasoning_effort": "high",
+        "reasoning_budget_tokens": 0,
         "chat_template_kwargs": {"enable_thinking": True},
     }
