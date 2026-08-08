@@ -1726,3 +1726,20 @@ def test_normalize_and_persist_news_storage_roots_absolutizes_relative_config(mo
     assert config.NEWS_ARTICLE_STORE_ROOT == str(roots.article_store_root)
     assert config.NEWS_CORPUS_ROOT == str(roots.corpus_root)
     assert config.NEWS_BRIEFINGS_ROOT == str(roots.briefings_root)
+
+
+def test_resolve_news_roots_keeps_missing_absolute_paths_isolated(tmp_path):
+    config = SimpleNamespace(
+        NEWS_ARTICLE_STORE_ROOT=str(tmp_path / "news_articles"),
+        NEWS_CORPUS_ROOT=str(tmp_path / "news_corpus"),
+        NEWS_BRIEFINGS_ROOT=str(tmp_path / "news_briefings"),
+    )
+
+    roots = news_lane.resolve_news_roots(config)
+
+    assert roots.article_store_root == (tmp_path / "news_articles").resolve()
+    assert roots.corpus_root == (tmp_path / "news_corpus").resolve()
+    assert roots.briefings_root == (tmp_path / "news_briefings").resolve()
+    assert roots.article_store_root.exists()
+    assert roots.corpus_root.exists()
+    assert roots.briefings_root.exists()

@@ -212,6 +212,9 @@ def _normalize_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+_PORTABLE_REPO_ROOT_NAMES = {"ariadne", "open-webui", "open-webui-dev"}
+
+
 def _portable_repo_root_fallback(
     candidate: Path,
     repo_relative_default: Path,
@@ -220,9 +223,13 @@ def _portable_repo_root_fallback(
         return None
 
     expected_suffix = repo_relative_default.parts
-    if len(candidate.parts) < len(expected_suffix):
+    if len(candidate.parts) < len(expected_suffix) + 1:
         return None
     if candidate.parts[-len(expected_suffix) :] != expected_suffix:
+        return None
+
+    repo_root_name = candidate.parts[-len(expected_suffix) - 1]
+    if repo_root_name not in _PORTABLE_REPO_ROOT_NAMES:
         return None
 
     portable = (BASE_DIR / repo_relative_default).resolve()
