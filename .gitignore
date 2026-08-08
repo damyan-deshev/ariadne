@@ -14,9 +14,13 @@ backend/models/
 # Proprietary local corpus must never be committed from this repo.
 /literature_corpus*/
 /cbt_corpus*/
+/news_articles/
+/news_briefings/
+/news_corpus/
 /_compiled_docling_review/
 /scripts/models.ini
 /scripts/run_llama.sh
+/scripts/llama_patch/*.bak-*
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Byte-compiled / optimized / DLL files
