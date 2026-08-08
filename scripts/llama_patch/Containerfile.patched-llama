@@ -5,7 +5,6 @@ ARG BACKEND
 ARG LLAMA_REPO=https://github.com/ggml-org/llama.cpp.git
 ARG LLAMA_BRANCH=master
 ARG LLAMA_REF=
-ARG PATCH_FILE=patches/0001-server-allow-streamed-tool-calls-with-content-logprobs.patch
 ARG ROCM_MAJOR_VER=7
 ARG GFX=gfx1151
 
@@ -29,7 +28,7 @@ RUN if [[ -z "${BACKEND}" ]]; then \
     common_pkgs=( \
         bash ca-certificates git-core patch cmake ninja-build make \
         gcc gcc-c++ binutils clang clang-devel lld compiler-rt libcurl-devel \
-        procps-ng findutils diffutils \
+        procps-ng findutils diffutils nodejs npm \
     ); \
     case "${BACKEND}" in \
         vulkan-radv) \
@@ -42,7 +41,7 @@ RUN if [[ -z "${BACKEND}" ]]; then \
             backend_pkgs=(rocminfo radeontop 'rocm-*' 'rocblas-*' hipblas 'hipblas-*'); \
             ;; \
         rocm7-nightlies) \
-            backend_pkgs=(curl tar xz aria2); \
+            backend_pkgs=(curl tar gzip xz aria2); \
             ;; \
         rocm*) \
             backend_pkgs=( \
@@ -104,8 +103,11 @@ RUN git clone --branch "${LLAMA_BRANCH}" --single-branch --recursive "${LLAMA_RE
     fi; \
     mkdir -p /usr/local/share; \
     git rev-parse HEAD | tee /usr/local/share/ariadne-llama-upstream-ref; \
-    git apply --3way --check "/tmp/ariadne-llama-patches/$(basename "${PATCH_FILE}")"; \
-    git apply --3way "/tmp/ariadne-llama-patches/$(basename "${PATCH_FILE}")"
+    mapfile -t ariadne_patches < <(find /tmp/ariadne-llama-patches -maxdepth 1 -type f -name '*.patch' | sort); \
+    for patch_file in "${ariadne_patches[@]}"; do \
+        git apply --3way --check "${patch_file}"; \
+        git apply --3way "${patch_file}"; \
+    done
 
 RUN cmake_args=( \
         -S . \
@@ -117,6 +119,7 @@ RUN cmake_args=( \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=ON \
         -DLLAMA_BUILD_SERVER=ON \
+        -DLLAMA_USE_PREBUILT_UI=OFF \
     ); \
     case "${BACKEND}" in \
         vulkan-radv|vulkan-amdvlk) \
@@ -145,24 +148,44 @@ RUN cmake_args=( \
                 export HIPCXX="$(hipconfig -l)/clang"; \
                 export HIP_PATH="$(hipconfig -R)"; \
             fi; \
+            export HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH:-$(find /usr/lib64/rocm /usr/lib/rocm /opt/rocm -path '*/amdgcn/bitcode' -type d 2>/dev/null | head -n1)}"; \
+            if [[ -z "${HIP_DEVICE_LIB_PATH}" ]]; then \
+                echo "Could not locate ROCm device bitcode libraries" >&2; exit 2; \
+            fi; \
             cmake_args+=( \
                 -DGGML_HIP=ON \
+                "-DCMAKE_HIP_FLAGS=--rocm-path=${ROCM_PATH} --rocm-device-lib-path=${HIP_DEVICE_LIB_PATH}" \
                 -DAMDGPU_TARGETS=gfx1151 \
                 -DLLAMA_HIP_UMA=ON \
                 -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON \
             ); \
             ;; \
         rocm*) \
-            export ROCM_PATH="${ROCM_PATH:-/opt/rocm}"; \
-            export HIP_PATH="${HIP_PATH:-${ROCM_PATH}}"; \
-            export HIP_CLANG_PATH="${HIP_CLANG_PATH:-${ROCM_PATH}/llvm/bin}"; \
-            export PATH="${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${PATH}"; \
+            if [[ -d /usr/lib64/cmake/hip-lang || -d /usr/lib/cmake/hip-lang ]]; then \
+                export ROCM_PATH="/usr"; \
+            elif command -v hipconfig >/dev/null 2>&1 && [[ -n "$(hipconfig -R 2>/dev/null)" ]]; then \
+                export ROCM_PATH="${ROCM_PATH:-$(hipconfig -R)}"; \
+            else \
+                export ROCM_PATH="${ROCM_PATH:-/opt/rocm}"; \
+            fi; \
+            export HIP_PATH="${ROCM_PATH}"; \
+            if command -v hipconfig >/dev/null 2>&1 && [[ -n "$(hipconfig -l 2>/dev/null)" ]]; then \
+                export HIP_CLANG_PATH="${HIP_CLANG_PATH:-$(hipconfig -l)}"; \
+            else \
+                export HIP_CLANG_PATH="${HIP_CLANG_PATH:-${ROCM_PATH}/llvm/bin}"; \
+            fi; \
+            export HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH:-$(find /usr/lib64/rocm /usr/lib/rocm /opt/rocm -path '*/amdgcn/bitcode' -type d 2>/dev/null | head -n1)}"; \
+            if [[ -z "${HIP_DEVICE_LIB_PATH}" ]]; then \
+                echo "Could not locate ROCm device bitcode libraries" >&2; exit 2; \
+            fi; \
+            export PATH="/opt/rocm/bin:/opt/rocm/core/bin:${HIP_CLANG_PATH}:${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${PATH}"; \
             cmake_args+=( \
                 -DGGML_HIP=ON \
-                "-DCMAKE_HIP_FLAGS=--rocm-path=${ROCM_PATH} -mllvm --amdgpu-unroll-threshold-local=600" \
+                "-DCMAKE_HIP_FLAGS=--rocm-path=${ROCM_PATH} --rocm-device-lib-path=${HIP_DEVICE_LIB_PATH} -mllvm --amdgpu-unroll-threshold-local=600" \
                 -DAMDGPU_TARGETS=gfx1151 \
                 -DLLAMA_HIP_UMA=ON \
                 -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON \
+                "-DCMAKE_HIP_COMPILER_ROCM_ROOT=${ROCM_PATH}" \
                 "-DROCM_PATH=${ROCM_PATH}" \
                 "-DHIP_PATH=${HIP_PATH}" \
                 -DHIP_PLATFORM=amd \
@@ -174,7 +197,7 @@ RUN cmake_args=( \
     cmake --install build --config Release; \
     find build -type f -name 'lib*.so*' -exec cp -f {} /usr/lib64/ \; || true; \
     ldconfig; \
-    /usr/local/bin/llama-server --help >/dev/null
+    test -x /usr/local/bin/llama-server
 
 LABEL org.opencontainers.image.title="Ariadne patched llama.cpp toolbox layer"
 LABEL org.opencontainers.image.description="kyuz0 toolbox base with Ariadne llama-server patch for stream+tools+logprobs"

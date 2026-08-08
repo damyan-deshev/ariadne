@@ -46,6 +46,8 @@ TOOLBOXES=(
   "llama-rocm-7.2.1-pr21344|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.1-pr21344 --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
   "llama-rocm-7.2.2|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.2 --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
   "llama-rocm-7.2.2-pr21344|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.2-pr21344 --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
+  "llama-rocm-7.14|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14 --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
+  "llama-rocm-7.2.3|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.3 --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
   "llama-rocm7-nightlies|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm7-nightlies --device /dev/dri --device /dev/kfd --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined"
 )
 

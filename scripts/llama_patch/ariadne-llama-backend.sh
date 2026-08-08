@@ -155,6 +155,7 @@ detect_backend() {
     *rocm-6.4.4*) echo "rocm-6.4.4" ;;
     *rocm-7.2.2-pr21344*) echo "rocm-7.2.2-pr21344" ;;
     *rocm-7.2.2*) echo "rocm-7.2.2" ;;
+    *rocm-7.2.3*) echo "rocm-7.2.3" ;;
     *rocm-7.2.1-pr21344*) echo "rocm-7.2.1-pr21344" ;;
     *rocm-7.2.1*) echo "rocm-7.2.1" ;;
     *rocm-7.2*) echo "rocm-7.2" ;;

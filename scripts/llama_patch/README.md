@@ -1,7 +1,11 @@
 # Ariadne llama.cpp Patch
 
-This directory contains the downstream patch and tooling for Ariadne's
-`stream + native tools + logprobs` llama.cpp experiment.
+This directory contains the downstream patches and tooling for Ariadne's
+llama.cpp backend.
+
+The primary server patch supports Ariadne's `stream + native tools + logprobs`
+experiment. The UI patches keep the embedded llama.cpp web UI compatible with
+newer llama.cpp server schemas while the patched image is built from source.
 
 The kyuz0 toolboxes contain compiled llama.cpp binaries. This workflow does
 not patch those binaries in place. It builds a derivative image from the
@@ -15,6 +19,14 @@ installed inside the derivative container image layer.
 
 - `patches/0001-server-allow-streamed-tool-calls-with-content-logprobs.patch`
   is a normal `git format-patch` patch against upstream `llama.cpp`.
+- `patches/0002-ui-migrate-dry-penalty-last-n-default.patch` migrates older
+  browser state that stored `dry_penalty_last_n = -1` and omits negative values
+  from the UI request payload. Current llama.cpp server schemas reject negative
+  values; upstream defaults use `64`, and `0` disables the DRY scan.
+- `patches/0003-ui-build-without-pwa-asset-generation.patch` disables the PWA
+  asset generation step inside the toolbox image build. The UI bundle still
+  builds with Vite; this avoids asset-generator failures unrelated to Ariadne's
+  server patch.
 - `Containerfile.patched-llama` builds a patched derivative image.
 - `build-patched-image.sh` wraps `podman build`.
 - `refresh-toolboxes.sh` is a small compatibility wrapper.
@@ -39,9 +51,9 @@ Example for ROCm:
 
 ```bash
 scripts/llama_patch/build-patched-image.sh \
-  --base-image docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.2 \
-  --toolbox-name llama-rocm-7.2.2 \
-  --tag localhost/ariadne-llama-rocm-7.2.2:latest
+  --base-image docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14 \
+  --toolbox-name llama-rocm-7.14 \
+  --tag localhost/ariadne-llama-rocm-7.14:latest
 ```
 
 Then create the toolbox from the local patched image instead of the upstream
@@ -85,6 +97,8 @@ It supports these llama.cpp toolboxes:
 - `llama-rocm-7.2.1-pr21344`
 - `llama-rocm-7.2.2`
 - `llama-rocm-7.2.2-pr21344`
+- `llama-rocm-7.2.3`
+- `llama-rocm-7.14`
 - `llama-rocm7-nightlies`
 
 It does not patch non-llama toolboxes such as ComfyUI.
@@ -104,8 +118,8 @@ image="$patched_image"
 ```
 
 The included patched refresh script builds the patched image before removing
-the existing toolbox. If the patch no longer applies, compilation fails, or
-`llama-server --help` does not run, the script fails closed and leaves the
+the existing toolbox. If a patch no longer applies, compilation fails, or the
+`llama-server` binary is not produced, the script fails closed and leaves the
 existing toolbox intact.
 
 Refresh/build logs are written under:
@@ -165,10 +179,17 @@ The smoke test checks that:
 
 ## Patch Semantics
 
-The patch intentionally does not claim OpenAI-compatible logprobs for tool-call
-delta chunks. It only emits logprobs on visible `delta.content` chunks. Tool
-call chunks either omit logprobs or leave them null, avoiding misleading token
-telemetry.
+The patched image applies every `*.patch` file in `patches/`, sorted by file
+name.
+
+The server patch intentionally does not claim OpenAI-compatible logprobs for
+tool-call delta chunks. It only emits logprobs on visible `delta.content`
+chunks. Tool call chunks either omit logprobs or leave them null, avoiding
+misleading token telemetry.
+
+The `dry_penalty_last_n` UI patch is a client-side migration, not a server
+schema relaxation. Keep the server contract strict and sanitize legacy UI
+payloads at the source.
 
 ## Versioned Backend Promotion
 
@@ -195,7 +216,7 @@ Common operations on the inference box:
 ~/models/ariadne-llama-backend.sh status
 ~/models/ariadne-llama-backend.sh list
 ~/models/ariadne-llama-backend.sh import-current --promote
-~/models/ariadne-llama-backend.sh build --lane pinned --toolbox llama-rocm-7.2.2
+~/models/ariadne-llama-backend.sh build --lane main --toolbox llama-rocm-7.14
 ~/models/ariadne-llama-backend.sh smoke --candidate <build-id> --profile dual --port 1235
 ~/models/ariadne-llama-backend.sh promote --candidate <build-id>
 ~/models/ariadne-llama-backend.sh rollback

@@ -41,7 +41,7 @@ Required:
 Options:
   --toolbox-name NAME      Used for backend/tag auto-detection
   --backend BACKEND        vulkan-radv, vulkan-amdvlk, rocm-6.4.4, rocm-6.4.4-rocwmma,
-                           rocm-7.2.2, or rocm7-nightlies
+                           rocm-7.14, rocm-7.2.3, rocm-7.2.2, or rocm7-nightlies
   --tag IMAGE_TAG          Output tag. Default: localhost/ariadne-llama-<backend>:latest
   --repo URL               llama.cpp git repository
   --branch BRANCH          llama.cpp branch. Default: master
@@ -97,9 +97,10 @@ detect_backend() {
     *rocm-6.4.4*) echo "rocm-6.4.4" ;;
     *rocm-7.2.2-pr21344*) echo "rocm-7.2.2-pr21344" ;;
     *rocm-7.2.2*) echo "rocm-7.2.2" ;;
+    *rocm-7.2.3*) echo "rocm-7.2.3" ;;
     *rocm-7.2.1-pr21344*) echo "rocm-7.2.1-pr21344" ;;
     *rocm-7.2.1*) echo "rocm-7.2.1" ;;
-    *rocm-7.2*) echo "rocm-7.2.1" ;;
+    *rocm-7.2*) echo "rocm-7.2" ;;
     *rocm*) echo "rocm" ;;
     *) return 1 ;;
   esac

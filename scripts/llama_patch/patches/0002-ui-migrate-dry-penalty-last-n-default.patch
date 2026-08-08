@@ -1,0 +1,47 @@
+diff --git a/tools/ui/src/lib/stores/settings.svelte.ts b/tools/ui/src/lib/stores/settings.svelte.ts
+index 0804fffcf..6cb2aa9c6 100644
+--- a/tools/ui/src/lib/stores/settings.svelte.ts
++++ b/tools/ui/src/lib/stores/settings.svelte.ts
+@@ -171,6 +171,7 @@ class SettingsStore {
+ 				localStorage.getItem(USER_OVERRIDES_LOCALSTORAGE_KEY) || '[]'
+ 			);
+ 			this.userOverrides = new Set(savedOverrides);
++			this.migrateLegacyDryPenaltyLastN();
+ 		} catch (error) {
+ 			console.warn('Failed to parse config from localStorage, using defaults:', error);
+ 			this.config = { ...SETTING_CONFIG_DEFAULT };
+@@ -193,6 +194,17 @@ class SettingsStore {
+ 			localStorage.removeItem('theme');
+ 			this.saveConfig();
+ 			setMode(legacyTheme as ColorMode);
++		}
++	}
++
++	private migrateLegacyDryPenaltyLastN() {
++		const key = SETTINGS_KEYS.DRY_PENALTY_LAST_N;
++		const value = getConfigValue(this.config, key);
++
++		if (value === -1 || value === '-1') {
++			setConfigValue(this.config, key, undefined);
++			this.userOverrides.delete(key);
++			this.saveConfig();
+ 		}
+ 	}
+ 	/**
+diff --git a/tools/ui/src/lib/stores/chat.svelte.ts b/tools/ui/src/lib/stores/chat.svelte.ts
+index 44290612b..db8342032 100644
+--- a/tools/ui/src/lib/stores/chat.svelte.ts
++++ b/tools/ui/src/lib/stores/chat.svelte.ts
+@@ -2536,8 +2536,10 @@ class ChatStore {
+ 		if (hasValue(currentConfig.dry_allowed_length))
+ 			apiOptions.dry_allowed_length = Number(currentConfig.dry_allowed_length);
+ 
+-		if (hasValue(currentConfig.dry_penalty_last_n))
+-			apiOptions.dry_penalty_last_n = Number(currentConfig.dry_penalty_last_n);
++		if (hasValue(currentConfig.dry_penalty_last_n)) {
++			const dryPenaltyLastN = Number(currentConfig.dry_penalty_last_n);
++			if (dryPenaltyLastN >= 0) apiOptions.dry_penalty_last_n = dryPenaltyLastN;
++		}
+ 
+ 		if (currentConfig.samplers) apiOptions.samplers = currentConfig.samplers;
+ 
