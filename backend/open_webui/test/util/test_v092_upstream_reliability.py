@@ -1,10 +1,13 @@
 import asyncio
 import json
+import sys
+import types
 from types import SimpleNamespace
 
 from starlette.requests import Request
 
 from open_webui.retrieval.web import firecrawl as firecrawl_utils
+from open_webui.retrieval.web import utils as web_utils
 from open_webui.routers import ollama as ollama_router
 from open_webui.routers import openai as openai_router
 from open_webui.tools import builtin as builtin_tools
@@ -30,6 +33,78 @@ class _FakeExitStack:
 
     async def aclose(self):
         self.calls += 1
+
+
+class _FakeSyncRoute:
+    def __init__(self, resource_type="document", url="https://example.com", status=200):
+        self.request = SimpleNamespace(resource_type=resource_type, url=url)
+        self.response = SimpleNamespace(status=status)
+        self.continued = False
+        self.aborted = False
+        self.fulfilled = False
+        self.fetch_kwargs = None
+
+    def continue_(self):
+        self.continued = True
+
+    def abort(self):
+        self.aborted = True
+
+    def fetch(self, **kwargs):
+        self.fetch_kwargs = kwargs
+        return self.response
+
+    def fulfill(self, response):
+        self.fulfilled = response is self.response
+
+
+class _FakePage:
+    def __init__(self):
+        self.routes = []
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.closed = True
+
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
+
+    def goto(self, url, timeout=None):
+        return SimpleNamespace(url=url, timeout=timeout)
+
+
+class _FakeBrowser:
+    def __init__(self, page):
+        self.page = page
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.closed = True
+
+    def new_page(self):
+        return self.page
+
+
+class _FakeSyncPlaywrightManager:
+    def __init__(self, browser):
+        self.browser = browser
+
+    def __enter__(self):
+        return SimpleNamespace(
+            chromium=SimpleNamespace(
+                launch=lambda **_kwargs: self.browser,
+                connect=lambda _ws_url: self.browser,
+            )
+        )
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_auth_token_middleware_accepts_custom_api_key_header(monkeypatch):
@@ -128,6 +203,67 @@ def test_firecrawl_scrape_uses_v2_endpoint_and_timeout(monkeypatch):
     assert captured["kwargs"]["json"]["timeout"] == 12000
     assert captured["kwargs"]["json"]["skipTlsVerification"] is True
     assert captured["kwargs"]["json"]["onlyMainContent"] is True
+
+
+def test_safe_playwright_interceptor_blocks_document_redirect(monkeypatch):
+    loader = web_utils.SafePlaywrightURLLoader(
+        ["https://example.com"],
+        verify_ssl=False,
+    )
+    route = _FakeSyncRoute(status=302)
+
+    monkeypatch.setattr(web_utils, "AIOHTTP_CLIENT_ALLOW_REDIRECTS", False)
+    monkeypatch.setattr(web_utils, "validate_url", lambda _url: True)
+
+    loader._intercept_navigation_sync(route)
+
+    assert route.fetch_kwargs == {"max_redirects": 0}
+    assert route.aborted is True
+    assert route.fulfilled is False
+
+
+def test_safe_playwright_interceptor_continues_subresources(monkeypatch):
+    loader = web_utils.SafePlaywrightURLLoader(
+        ["https://example.com"],
+        verify_ssl=False,
+    )
+    route = _FakeSyncRoute(resource_type="stylesheet")
+
+    monkeypatch.setattr(web_utils, "validate_url", lambda _url: True)
+
+    loader._intercept_navigation_sync(route)
+
+    assert route.continued is True
+    assert route.fetch_kwargs is None
+    assert route.aborted is False
+
+
+def test_safe_playwright_lazy_load_closes_page_and_browser(monkeypatch):
+    page = _FakePage()
+    browser = _FakeBrowser(page)
+    sync_api = types.ModuleType("playwright.sync_api")
+    sync_api.sync_playwright = lambda: _FakeSyncPlaywrightManager(browser)
+    playwright_pkg = types.ModuleType("playwright")
+    playwright_pkg.__path__ = []
+
+    monkeypatch.setitem(sys.modules, "playwright", playwright_pkg)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+    loader = web_utils.SafePlaywrightURLLoader(
+        ["https://example.com"],
+        verify_ssl=False,
+    )
+    loader.evaluator = SimpleNamespace(
+        evaluate=lambda _page, _browser, _response: "Example page"
+    )
+
+    documents = list(loader.lazy_load())
+
+    assert documents[0].page_content == "Example page"
+    assert documents[0].metadata == {"source": "https://example.com"}
+    assert page.routes == [("**/*", loader._intercept_navigation_sync)]
+    assert page.closed is True
+    assert browser.closed is True
 
 
 def test_process_tool_result_reads_resource_text_payload():

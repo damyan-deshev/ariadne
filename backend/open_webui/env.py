@@ -876,6 +876,10 @@ AIOHTTP_CLIENT_SESSION_SSL = (
     os.environ.get("AIOHTTP_CLIENT_SESSION_SSL", "True").lower() == "true"
 )
 
+AIOHTTP_CLIENT_ALLOW_REDIRECTS = (
+    os.environ.get("AIOHTTP_CLIENT_ALLOW_REDIRECTS", "False").lower() == "true"
+)
+
 AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST = os.environ.get(
     "AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST",
     os.environ.get("AIOHTTP_CLIENT_TIMEOUT_OPENAI_MODEL_LIST", "10"),

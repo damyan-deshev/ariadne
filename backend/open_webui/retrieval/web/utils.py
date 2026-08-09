@@ -4,9 +4,10 @@ import json
 import logging
 import socket
 import ssl
+import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import (
     Any,
     AsyncIterator,
@@ -47,6 +48,7 @@ from open_webui.config import (
     EXTERNAL_WEB_LOADER_API_KEY,
     WEB_FETCH_FILTER_LIST,
 )
+from open_webui.env import AIOHTTP_CLIENT_ALLOW_REDIRECTS
 from open_webui.utils.misc import is_string_allowed
 
 log = logging.getLogger(__name__)
@@ -439,6 +441,62 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
         self.trust_env = trust_env
         self.playwright_timeout = playwright_timeout
 
+    def _intercept_navigation_sync(self, route, request=None):
+        req = request or route.request
+
+        if req.resource_type != "document":
+            route.continue_()
+            return
+
+        try:
+            validate_url(req.url)
+        except Exception:
+            route.abort()
+            return
+
+        if AIOHTTP_CLIENT_ALLOW_REDIRECTS:
+            resp = route.fetch()
+        else:
+            try:
+                resp = route.fetch(max_redirects=0)
+            except TypeError:
+                route.abort()
+                return
+
+            if 300 <= resp.status < 400:
+                route.abort()
+                return
+
+        route.fulfill(response=resp)
+
+    async def _intercept_navigation(self, route, request=None):
+        req = request or route.request
+
+        if req.resource_type != "document":
+            await route.continue_()
+            return
+
+        try:
+            await run_in_threadpool(validate_url, req.url)
+        except Exception:
+            await route.abort()
+            return
+
+        if AIOHTTP_CLIENT_ALLOW_REDIRECTS:
+            resp = await route.fetch()
+        else:
+            try:
+                resp = await route.fetch(max_redirects=0)
+            except TypeError:
+                await route.abort()
+                return
+
+            if 300 <= resp.status < 400:
+                await route.abort()
+                return
+
+        await route.fulfill(response=resp)
+
     def lazy_load(self) -> Iterator[Document]:
         """Safely load URLs synchronously with support for remote browser."""
         from playwright.sync_api import sync_playwright
@@ -450,23 +508,28 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
             else:
                 browser = p.chromium.launch(headless=self.headless, proxy=self.proxy)
 
-            for url in self.urls:
-                try:
-                    self._safe_process_url_sync(url)
-                    page = browser.new_page()
-                    response = page.goto(url, timeout=self.playwright_timeout)
-                    if response is None:
-                        raise ValueError(f"page.goto() returned None for url {url}")
+            with browser:
+                for url in self.urls:
+                    try:
+                        self._safe_process_url_sync(url)
+                        with browser.new_page() as page:
+                            page.route("**/*", self._intercept_navigation_sync)
+                            response = page.goto(
+                                url, timeout=self.playwright_timeout
+                            )
+                            if response is None:
+                                raise ValueError(
+                                    f"page.goto() returned None for url {url}"
+                                )
 
-                    text = self.evaluator.evaluate(page, browser, response)
-                    metadata = {"source": url}
-                    yield Document(page_content=text, metadata=metadata)
-                except Exception as e:
-                    if self.continue_on_failure:
-                        log.exception(f"Error loading {url}: {e}")
-                        continue
-                    raise e
-            browser.close()
+                            text = self.evaluator.evaluate(page, browser, response)
+                            metadata = {"source": url}
+                            yield Document(page_content=text, metadata=metadata)
+                    except Exception as e:
+                        if self.continue_on_failure:
+                            log.exception(f"Error loading {url}: {e}")
+                            continue
+                        raise e
 
     async def alazy_load(self) -> AsyncIterator[Document]:
         """Safely load URLs asynchronously with support for remote browser."""
@@ -481,23 +544,30 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                     headless=self.headless, proxy=self.proxy
                 )
 
-            for url in self.urls:
-                try:
-                    await self._safe_process_url(url)
-                    page = await browser.new_page()
-                    response = await page.goto(url, timeout=self.playwright_timeout)
-                    if response is None:
-                        raise ValueError(f"page.goto() returned None for url {url}")
+            async with browser:
+                for url in self.urls:
+                    try:
+                        await self._safe_process_url(url)
+                        async with await browser.new_page() as page:
+                            await page.route("**/*", self._intercept_navigation)
+                            response = await page.goto(
+                                url, timeout=self.playwright_timeout
+                            )
+                            if response is None:
+                                raise ValueError(
+                                    f"page.goto() returned None for url {url}"
+                                )
 
-                    text = await self.evaluator.evaluate_async(page, browser, response)
-                    metadata = {"source": url}
-                    yield Document(page_content=text, metadata=metadata)
-                except Exception as e:
-                    if self.continue_on_failure:
-                        log.exception(f"Error loading {url}: {e}")
-                        continue
-                    raise e
-            await browser.close()
+                            text = await self.evaluator.evaluate_async(
+                                page, browser, response
+                            )
+                            metadata = {"source": url}
+                            yield Document(page_content=text, metadata=metadata)
+                    except Exception as e:
+                        if self.continue_on_failure:
+                            log.exception(f"Error loading {url}: {e}")
+                            continue
+                        raise e
 
 
 class SafeWebBaseLoader(WebBaseLoader):
