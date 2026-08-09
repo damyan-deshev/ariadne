@@ -336,6 +336,110 @@ async def test_streaming_chat_response_accumulates_content_parts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_streaming_late_reasoning_is_inserted_before_message(monkeypatch):
+    saved_messages = []
+    emitted_events = []
+    background_called = False
+
+    class StreamingResponseStub:
+        def __init__(self, chunks):
+            self.body_iterator = self._body_iterator(chunks)
+            self.background = None
+
+        async def _body_iterator(self, chunks):
+            for chunk in chunks:
+                yield chunk
+
+    def _save_message(chat_id, message_id, payload):
+        saved_messages.append((chat_id, message_id, payload))
+        return None
+
+    async def _event_emitter(event):
+        emitted_events.append(event)
+
+    async def _event_caller(_event):
+        return None
+
+    async def _background_tasks(_ctx):
+        nonlocal background_called
+        background_called = True
+
+    async def _get_system_oauth_token(_request, _user):
+        return None
+
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.Chats.get_message_by_id_and_message_id",
+        lambda _chat_id, _message_id: None,
+    )
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.Chats.upsert_message_to_chat_by_id_and_message_id",
+        _save_message,
+    )
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.Chats.get_chat_title_by_id",
+        lambda _chat_id: "Test Chat",
+    )
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.Users.is_user_active",
+        lambda _user_id: True,
+    )
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.background_tasks_handler",
+        _background_tasks,
+    )
+    monkeypatch.setattr(
+        "open_webui.utils.middleware.get_system_oauth_token",
+        _get_system_oauth_token,
+    )
+    monkeypatch.setattr("open_webui.utils.middleware.ENABLE_REALTIME_CHAT_SAVE", False)
+
+    chunks = [
+        f"data: {json.dumps({'choices': [{'delta': {'content': 'Final '}}]})}\n\n",
+        f"data: {json.dumps({'choices': [{'delta': {'reasoning_content': 'hidden'}}]})}\n\n",
+        f"data: {json.dumps({'choices': [{'delta': {'content': 'answer'}}]})}\n\n",
+        "data: [DONE]\n\n",
+    ]
+    ctx = {
+        "request": SimpleNamespace(
+            app=SimpleNamespace(
+                state=SimpleNamespace(
+                    WEBUI_NAME="Open WebUI",
+                    config=SimpleNamespace(WEBUI_URL="https://example.test"),
+                )
+            )
+        ),
+        "user": SimpleNamespace(id="user-1"),
+        "model": {"id": "local-model", "info": {"meta": {"capabilities": {}}}},
+        "metadata": {
+            "chat_id": "chat-1",
+            "message_id": "message-1",
+            "params": {},
+        },
+        "events": [],
+        "event_emitter": _event_emitter,
+        "event_caller": _event_caller,
+        "form_data": {
+            "model": "local-model",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+        "tasks": None,
+    }
+
+    await streaming_chat_response_handler(StreamingResponseStub(chunks), ctx)
+
+    assert background_called is True
+    final_payload = saved_messages[-1][2]
+    assert final_payload["content"] == "Final answer"
+    assert [item["type"] for item in final_payload["output"]] == [
+        "reasoning",
+        "message",
+    ]
+    assert final_payload["output"][0]["status"] == "completed"
+    assert final_payload["output"][0]["content"][0]["text"] == "hidden"
+    assert final_payload["output"][1]["content"][0]["text"] == "Final answer"
+
+
+@pytest.mark.asyncio
 async def test_background_tasks_handler_schedules_ledger_without_event_emitter(
     monkeypatch,
 ):

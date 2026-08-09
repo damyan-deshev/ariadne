@@ -8075,10 +8075,36 @@ async def streaming_chat_response_handler(response, ctx):
                                         or delta.get("thinking")
                                     )
                                     if reasoning_content:
+                                        existing_reasoning_item = next(
+                                            (
+                                                item
+                                                for item in reversed(output)
+                                                if item.get("type") == "reasoning"
+                                            ),
+                                            None,
+                                        )
+                                        message_index = next(
+                                            (
+                                                i
+                                                for i, item in enumerate(output)
+                                                if item.get("type") == "message"
+                                            ),
+                                            None,
+                                        )
+                                        reasoning_item = (
+                                            existing_reasoning_item
+                                            if message_index is not None
+                                            else None
+                                        )
+
                                         if (
-                                            not output
-                                            or output[-1].get("type") != "reasoning"
+                                            not reasoning_item
+                                            and output
+                                            and output[-1].get("type") == "reasoning"
                                         ):
+                                            reasoning_item = output[-1]
+
+                                        if not reasoning_item:
                                             reasoning_item = {
                                                 "type": "reasoning",
                                                 "id": output_id("r"),
@@ -8092,9 +8118,15 @@ async def streaming_chat_response_handler(response, ctx):
                                                 "summary": None,
                                                 "started_at": time.time(),
                                             }
-                                            output.append(reasoning_item)
-                                        else:
-                                            reasoning_item = output[-1]
+                                            if message_index is not None:
+                                                reasoning_item["ended_at"] = time.time()
+                                                reasoning_item["duration"] = 0
+                                                reasoning_item["status"] = "completed"
+                                                output.insert(
+                                                    message_index, reasoning_item
+                                                )
+                                            else:
+                                                output.append(reasoning_item)
 
                                         # Append to reasoning content
                                         parts = reasoning_item.get("content", [])
