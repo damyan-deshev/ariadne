@@ -429,7 +429,9 @@ async def test_streaming_late_reasoning_is_inserted_before_message(monkeypatch):
 
     assert background_called is True
     final_payload = saved_messages[-1][2]
-    assert final_payload["content"] == "Final answer"
+    assert '<details type="reasoning"' in final_payload["content"]
+    assert "hidden" in final_payload["content"]
+    assert final_payload["content"].endswith("Final answer")
     assert [item["type"] for item in final_payload["output"]] == [
         "reasoning",
         "message",
