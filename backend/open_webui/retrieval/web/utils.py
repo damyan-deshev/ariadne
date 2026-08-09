@@ -49,7 +49,7 @@ from open_webui.config import (
     WEB_FETCH_FILTER_LIST,
 )
 from open_webui.env import AIOHTTP_CLIENT_ALLOW_REDIRECTS
-from open_webui.utils.misc import is_string_allowed
+from open_webui.utils.misc import is_host_allowed
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ def validate_url(url: Union[str, Sequence[str]]):
 
         # Blocklist check using unified filtering logic
         if WEB_FETCH_FILTER_LIST:
-            if not is_string_allowed(url, WEB_FETCH_FILTER_LIST):
+            if not is_host_allowed(parsed_url.hostname, WEB_FETCH_FILTER_LIST):
                 log.warning(f"URL blocked by filter list: {url}")
                 raise ValueError(ERROR_MESSAGES.INVALID_URL)
 

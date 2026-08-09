@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 
 from open_webui.retrieval.web.utils import resolve_hostname
-from open_webui.utils.misc import is_string_allowed
+from open_webui.utils.misc import is_host_allowed
 
 
 def get_filtered_results(results, filter_list):
@@ -33,7 +33,7 @@ def get_filtered_results(results, filter_list):
         except Exception:
             pass
 
-        if is_string_allowed(hostnames, filter_list):
+        if is_host_allowed(hostnames, filter_list):
             filtered_results.append(result)
             continue
 

@@ -4,14 +4,17 @@ import sys
 import types
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 from open_webui.retrieval.web import firecrawl as firecrawl_utils
+from open_webui.retrieval.web import main as web_main
 from open_webui.retrieval.web import utils as web_utils
 from open_webui.routers import ollama as ollama_router
 from open_webui.routers import openai as openai_router
 from open_webui.tools import builtin as builtin_tools
 from open_webui.utils import asgi_middleware
+from open_webui.utils import misc as misc_utils
 from open_webui.utils import middleware
 from open_webui.utils import oauth as oauth_utils
 from open_webui.utils.mcp.client import MCPClient
@@ -264,6 +267,42 @@ def test_safe_playwright_lazy_load_closes_page_and_browser(monkeypatch):
     assert page.routes == [("**/*", loader._intercept_navigation_sync)]
     assert page.closed is True
     assert browser.closed is True
+
+
+def test_is_host_allowed_matches_dns_label_boundaries():
+    assert misc_utils.is_host_allowed("api.corp.com", ["corp.com"]) is True
+    assert misc_utils.is_host_allowed("corp.com", ["corp.com"]) is True
+    assert misc_utils.is_host_allowed("evilcorp.com", ["corp.com"]) is False
+    assert misc_utils.is_host_allowed(
+        ["example.com", "100.100.100.200"], ["!100.100.100.200"]
+    ) is False
+
+
+def test_validate_url_filters_hostname_not_full_url(monkeypatch):
+    monkeypatch.setattr(web_utils, "WEB_FETCH_FILTER_LIST", ["!blocked.example"])
+    monkeypatch.setattr(web_utils, "ENABLE_RAG_LOCAL_WEB_FETCH", True)
+
+    with pytest.raises(ValueError):
+        web_utils.validate_url("https://blocked.example/path")
+
+    assert web_utils.validate_url("https://evilblocked.example/path") is True
+
+
+def test_web_result_filter_uses_host_boundaries(monkeypatch):
+    monkeypatch.setattr(
+        web_main,
+        "resolve_hostname",
+        lambda _domain: ([], []),
+    )
+
+    results = [
+        {"url": "https://evilcorp.com/report"},
+        {"url": "https://api.corp.com/report"},
+    ]
+
+    assert web_main.get_filtered_results(results, ["corp.com"]) == [
+        {"url": "https://api.corp.com/report"}
+    ]
 
 
 def test_process_tool_result_reads_resource_text_payload():
