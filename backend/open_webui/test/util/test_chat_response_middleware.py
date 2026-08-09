@@ -434,6 +434,32 @@ def test_apply_params_strips_ledger_mode_from_ollama_options():
     assert "local_corpus_mode" not in result["options"]
 
 
+def test_model_system_prompt_snapshot_survives_params_pop():
+    form_data = {
+        "messages": [
+            {"role": "system", "content": "<memory_context>facts</memory_context>"}
+        ],
+        "params": {"system": "Model rule: {{MODE}} for {{USER_NAME}}."},
+    }
+    model_system_prompt = (form_data.get("params") or {}).get("system")
+
+    result = apply_params_to_form_data(form_data, {"owned_by": "openai"})
+    resolved_model_system_prompt = middleware._resolve_model_system_prompt_snapshot(
+        model_system_prompt,
+        {"variables": {"{{MODE}}": "strict"}},
+        {"name": "Damyan", "email": "damyan@example.test", "info": {}},
+    )
+    system_message = middleware.get_system_message(result["messages"])
+    system_content = middleware.get_content_from_message(system_message)
+    if resolved_model_system_prompt:
+        system_content = f"{resolved_model_system_prompt}\n{system_content}"
+
+    assert "params" not in result
+    assert system_content == (
+        "Model rule: strict for Damyan.\n<memory_context>facts</memory_context>"
+    )
+
+
 def test_local_corpus_prefer_system_prompt_encourages_brief_human_preamble():
     prompt = middleware.LOCAL_CORPUS_PREFER_SYSTEM_PROMPT
 

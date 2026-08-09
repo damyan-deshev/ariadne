@@ -5726,10 +5726,36 @@ def process_messages_with_output(messages: list[dict]) -> list[dict]:
     return processed
 
 
+def _resolve_model_system_prompt_snapshot(
+    system_prompt: Any, metadata: dict[str, Any], user: Any
+) -> Optional[str]:
+    if not system_prompt:
+        return None
+
+    scratch_body = {"messages": []}
+    try:
+        scratch_body = apply_system_prompt_to_body(
+            system_prompt,
+            scratch_body,
+            metadata,
+            user,
+        )
+    except Exception:
+        return str(system_prompt)
+
+    system_message = get_system_message(scratch_body.get("messages", []))
+    system_content = get_content_from_message(system_message) if system_message else ""
+    return system_content or None
+
+
 async def process_chat_payload(request, form_data, user, metadata, model):
     # Pipeline Inlet -> Filter Inlet -> Chat Memory -> Chat Web Search -> Chat Image Generation
     # -> Chat Code Interpreter (Form Data Update) -> (Default) Chat Tools Function Calling
     # -> Chat Files
+
+    # Capture before apply_params_to_form_data pops params; tool-call iterations
+    # rely on metadata["system_prompt"] because they bypass provider prompt injection.
+    model_system_prompt = (form_data.get("params") or {}).get("system")
 
     form_data = apply_params_to_form_data(form_data, model)
     form_data = apply_global_cache_prompt(
@@ -6709,9 +6735,20 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # restore to the true original (before file-source injection) rather
     # than a snapshot that already has the RAG template baked in.
     system_message = get_system_message(form_data["messages"])
-    metadata["system_prompt"] = (
-        get_content_from_message(system_message) if system_message else None
+    system_content = get_content_from_message(system_message) if system_message else ""
+    resolved_model_system_prompt = _resolve_model_system_prompt_snapshot(
+        model_system_prompt,
+        metadata,
+        user,
     )
+    if resolved_model_system_prompt:
+        system_content = (
+            f"{resolved_model_system_prompt}\n{system_content}"
+            if system_content
+            else resolved_model_system_prompt
+        )
+
+    metadata["system_prompt"] = system_content or None
     metadata["user_prompt"] = get_last_user_message(form_data["messages"])
     metadata["sources"] = sources[:] if sources else []
 
