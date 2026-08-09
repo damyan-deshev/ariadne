@@ -7627,11 +7627,14 @@ async def streaming_chat_response_handler(response, ctx):
             except Exception as e:
                 pass
 
-            content = (
+            initial_content = (
                 message.get("content", "")
                 if message
                 else last_assistant_message if last_assistant_message else ""
             )
+            content_parts = [
+                initial_content if isinstance(initial_content, str) else f"{initial_content}"
+            ] if initial_content else []
 
             # Initialize output: use existing from message if continuing, else create new
             existing_output = message.get("output") if message else None
@@ -7639,14 +7642,14 @@ async def streaming_chat_response_handler(response, ctx):
                 output = existing_output
             else:
                 # Only create an initial message item if there is content to initialize with
-                if content:
+                if initial_content:
                     output = [
                         {
                             "type": "message",
                             "id": output_id("msg"),
                             "status": "in_progress",
                             "role": "assistant",
-                            "content": [{"type": "output_text", "text": content}],
+                            "content": [{"type": "output_text", "text": initial_content}],
                         }
                     ]
                 else:
@@ -7724,7 +7727,7 @@ async def streaming_chat_response_handler(response, ctx):
                     )
 
                 async def stream_body_handler(response, form_data):
-                    nonlocal content
+                    nonlocal content_parts
                     nonlocal usage
                     nonlocal output
                     nonlocal prior_output
@@ -8122,7 +8125,9 @@ async def streaming_chat_response_handler(response, ctx):
                                                 user,
                                             )
 
-                                        content = f"{content}{value}"
+                                        content_parts.append(
+                                            value if isinstance(value, str) else f"{value}"
+                                        )
 
                                         # Check if we're inside a tag-based block
                                         # (reasoning, code_interpreter, or solution).
@@ -8255,6 +8260,7 @@ async def streaming_chat_response_handler(response, ctx):
                                             if end:
                                                 break
 
+                                        current_output = full_output()
                                         if ENABLE_REALTIME_CHAT_SAVE:
                                             # Save message in the database
                                             Chats.upsert_message_to_chat_by_id_and_message_id(
@@ -8262,15 +8268,15 @@ async def streaming_chat_response_handler(response, ctx):
                                                 metadata["message_id"],
                                                 {
                                                     "content": serialize_output(
-                                                        full_output()
+                                                        current_output
                                                     ),
-                                                    "output": full_output(),
+                                                    "output": current_output,
                                                 },
                                             )
                                         else:
                                             data = {
                                                 "content": serialize_output(
-                                                    full_output()
+                                                    current_output
                                                 ),
                                             }
 
@@ -9294,6 +9300,8 @@ async def streaming_chat_response_handler(response, ctx):
                         metadata["message_id"],
                         update_payload,
                     )
+
+                content = "".join(content_parts)
 
                 # Send a webhook notification if the user is not active
                 if not Users.is_user_active(user.id):
