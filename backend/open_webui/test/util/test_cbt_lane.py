@@ -96,3 +96,21 @@ def test_apply_persona_runtime_defaults_preserves_explicit_chat_params():
         "reasoning_budget_tokens": 0,
         "chat_template_kwargs": {"enable_thinking": True},
     }
+
+
+def test_null_chat_system_prompt_override_preserves_persona_snapshot():
+    requested = persona_utils._merge_requested_state(
+        {"system_prompt": "You are Aunt Gemma."},
+        {"system_prompt": None},
+    )
+
+    assert requested["system_prompt"] == "You are Aunt Gemma."
+
+
+def test_empty_chat_system_prompt_override_intentionally_disables_persona_prompt():
+    requested = persona_utils._merge_requested_state(
+        {"system_prompt": "You are Aunt Gemma."},
+        {"system_prompt": ""},
+    )
+
+    assert requested["system_prompt"] == ""

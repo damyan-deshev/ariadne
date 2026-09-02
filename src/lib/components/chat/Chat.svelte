@@ -626,8 +626,8 @@
 		}
 
 		const currentSystemPrompt = hasOwn(params, 'system') ? params.system : undefined;
-		if (currentSystemPrompt !== snapshot.system_prompt) {
-			overrides['system_prompt'] = hasOwn(params, 'system') ? params.system : null;
+		if (hasOwn(params, 'system') && currentSystemPrompt !== snapshot.system_prompt) {
+			overrides['system_prompt'] = params.system;
 		}
 
 		return overrides;

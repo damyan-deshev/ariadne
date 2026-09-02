@@ -383,6 +383,12 @@ def _merge_requested_state(
 
     for overrides in (persisted_overrides or {}, request_overrides or {}):
         for key, value in overrides.items():
+            # Older chats may contain ``system_prompt: null`` when the chat did
+            # not carry an explicit system prompt. Treat that as no override so
+            # it cannot silently erase the persona snapshot. An empty string is
+            # still an explicit override and intentionally disables the prompt.
+            if key == "system_prompt" and value is None:
+                continue
             requested[key] = deepcopy(value)
 
     requested.setdefault("tool_ids", [])

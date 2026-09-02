@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getPersonaRuntimeParamDefaults } from './personas';
+import { getEffectivePersonaState, getPersonaRuntimeParamDefaults } from './personas';
 
 describe('persona runtime param defaults', () => {
 	it('extracts structured runtime defaults for the CBT lane', () => {
@@ -50,5 +50,47 @@ describe('persona runtime param defaults', () => {
 			working_mode: 'cbt',
 			local_corpus_mode: 'prefer'
 		});
+	});
+});
+
+describe('persona system prompt overrides', () => {
+	const persona = {
+		id: 'aunt-gemma',
+		name: 'Aunt Gemma',
+		system_prompt: 'You are Aunt Gemma.',
+		tool_ids: [],
+		skill_ids: [],
+		filter_ids: [],
+		action_ids: [],
+		default_feature_ids: [],
+		capabilities: {}
+	} as any;
+
+	it('treats a legacy null chat override as no system prompt override', () => {
+		const state = getEffectivePersonaState({
+			persona,
+			chatMeta: {
+				persona_defaults_snapshot: { ...persona },
+				persona_chat_overrides: { system_prompt: null }
+			},
+			tools: [],
+			functions: []
+		});
+
+		expect(state?.effective.system_prompt).toBe('You are Aunt Gemma.');
+	});
+
+	it('preserves an empty string as an intentional system prompt override', () => {
+		const state = getEffectivePersonaState({
+			persona,
+			chatMeta: {
+				persona_defaults_snapshot: { ...persona },
+				persona_chat_overrides: { system_prompt: '' }
+			},
+			tools: [],
+			functions: []
+		});
+
+		expect(state?.effective.system_prompt).toBe('');
 	});
 });

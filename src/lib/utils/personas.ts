@@ -251,7 +251,8 @@ export const getEffectivePersonaState = ({
 	const overrides = chatMeta?.persona_chat_overrides ?? {};
 	const requested = {
 		...snapshot,
-		...overrides
+		...overrides,
+		...(overrides.system_prompt === null ? { system_prompt: snapshot.system_prompt } : {})
 	};
 
 	const toolIds = sanitizeByExistingIds(
