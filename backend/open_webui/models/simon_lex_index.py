@@ -81,9 +81,13 @@ _WORD_RE = re.compile(r"\w+")
 _WORKER_SETTINGS_LOCK = threading.Lock()
 _WORKER_BATCH_SIZE = DEFAULT_QUEUE_BATCH_SIZE
 _WORKER_POLL_MS = DEFAULT_QUEUE_POLL_MS
+_SCHEMA_LOCK = threading.Lock()
+_SCHEMA_READY = False
 
 
-def update_worker_settings(*, batch_size: int | None = None, poll_ms: int | None = None) -> None:
+def update_worker_settings(
+    *, batch_size: int | None = None, poll_ms: int | None = None
+) -> None:
     global _WORKER_BATCH_SIZE, _WORKER_POLL_MS
 
     with _WORKER_SETTINGS_LOCK:
@@ -109,81 +113,91 @@ def is_supported_database() -> bool:
 
 
 def ensure_schema(db: Session) -> None:
+    global _SCHEMA_READY
+
     if not is_supported_database():
         return
 
-    db.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS simon_chat_lex (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                parent_id TEXT,
-                role TEXT,
-                content_text TEXT,
-                content_hash TEXT,
-                extractor_version INTEGER NOT NULL DEFAULT 1,
-                created_at BIGINT,
-                updated_at BIGINT,
-                UNIQUE(chat_id, message_id)
+    if _SCHEMA_READY:
+        return
+
+    with _SCHEMA_LOCK:
+        if _SCHEMA_READY:
+            return
+
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS simon_chat_lex (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    parent_id TEXT,
+                    role TEXT,
+                    content_text TEXT,
+                    content_hash TEXT,
+                    extractor_version INTEGER NOT NULL DEFAULT 1,
+                    created_at BIGINT,
+                    updated_at BIGINT,
+                    UNIQUE(chat_id, message_id)
+                )
+                """
             )
-            """
         )
-    )
 
-    db.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS simon_chat_lex_queue (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                priority INTEGER NOT NULL DEFAULT 0,
-                attempts INTEGER NOT NULL DEFAULT 0,
-                last_error TEXT,
-                available_at BIGINT NOT NULL,
-                created_at BIGINT NOT NULL,
-                updated_at BIGINT NOT NULL,
-                UNIQUE(chat_id, message_id)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS simon_chat_lex_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    available_at BIGINT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    UNIQUE(chat_id, message_id)
+                )
+                """
             )
-            """
         )
-    )
 
-    db.execute(
-        text(
-            """
-            CREATE INDEX IF NOT EXISTS idx_simon_chat_lex_chat_updated
-            ON simon_chat_lex(chat_id, updated_at DESC)
-            """
-        )
-    )
-
-    db.execute(
-        text(
-            """
-            CREATE INDEX IF NOT EXISTS idx_simon_chat_lex_queue_available
-            ON simon_chat_lex_queue(available_at, priority, updated_at)
-            """
-        )
-    )
-
-    db.execute(
-        text(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS simon_chat_lex_fts USING fts5(
-                content_text,
-                message_id UNINDEXED,
-                chat_id UNINDEXED,
-                parent_id UNINDEXED,
-                role UNINDEXED
+        db.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_simon_chat_lex_chat_updated
+                ON simon_chat_lex(chat_id, updated_at DESC)
+                """
             )
-            """
         )
-    )
 
-    db.commit()
+        db.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_simon_chat_lex_queue_available
+                ON simon_chat_lex_queue(available_at, priority, updated_at)
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS simon_chat_lex_fts USING fts5(
+                    content_text,
+                    message_id UNINDEXED,
+                    chat_id UNINDEXED,
+                    parent_id UNINDEXED,
+                    role UNINDEXED
+                )
+                """
+            )
+        )
+
+        db.commit()
+        _SCHEMA_READY = True
 
 
 def _as_epoch_seconds(value: Any) -> int:

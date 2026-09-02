@@ -9282,17 +9282,20 @@ async def streaming_chat_response_handler(response, ctx):
                 )
                 if isinstance(tool_journey_telemetry, dict):
                     tool_journey_telemetry["completed_at"] = int(time.time())
-                title = Chats.get_chat_title_by_id(metadata["chat_id"])
+                title = None
+                try:
+                    title = Chats.get_chat_title_by_id(metadata["chat_id"])
+                except Exception as e:
+                    # Completion delivery must not depend on an auxiliary title
+                    # lookup. In particular, a transient SQLite reader/writer
+                    # collision must not discard already-collected token telemetry.
+                    log.warning("Failed to load chat title during finalization: %s", e)
                 data = {
                     "done": True,
                     "content": serialize_output(output),
                     "output": output,
                     "title": title,
-                    **(
-                        {"tokenTelemetry": token_telemetry}
-                        if token_telemetry
-                        else {}
-                    ),
+                    **({"tokenTelemetry": token_telemetry} if token_telemetry else {}),
                     **({"tokenBranch": token_branch} if token_branch else {}),
                     **(
                         {"memoryTelemetry": memory_telemetry}
@@ -9311,64 +9314,84 @@ async def streaming_chat_response_handler(response, ctx):
                     ),
                 }
 
-                if not ENABLE_REALTIME_CHAT_SAVE:
-                    # Save message in the database
-                    Chats.upsert_message_to_chat_by_id_and_message_id(
-                        metadata["chat_id"],
-                        metadata["message_id"],
-                        {
-                            "content": serialize_output(output),
-                            "output": output,
-                            **({"usage": usage} if usage else {}),
-                            **(
-                                {"tokenTelemetry": token_telemetry}
-                                if token_telemetry
-                                else {}
-                            ),
-                            **({"tokenBranch": token_branch} if token_branch else {}),
-                            **(
-                                {"memoryTelemetry": memory_telemetry}
-                                if memory_telemetry
-                                else {}
-                            ),
-                            **(
-                                {"toolJourneyTelemetry": tool_journey_telemetry}
-                                if tool_journey_telemetry
-                                else {}
-                            ),
-                            **(
-                                {"promptTelemetry": prompt_telemetry}
-                                if prompt_telemetry
-                                else {}
-                            ),
-                        },
-                    )
-                elif (
-                    usage
-                    or token_telemetry
-                    or token_branch
-                    or memory_telemetry
-                    or tool_journey_telemetry
-                    or prompt_telemetry
-                ):
-                    update_payload = {}
-                    if usage:
-                        update_payload["usage"] = usage
-                    if token_telemetry:
-                        update_payload["tokenTelemetry"] = token_telemetry
-                    if token_branch:
-                        update_payload["tokenBranch"] = token_branch
-                    if memory_telemetry:
-                        update_payload["memoryTelemetry"] = memory_telemetry
-                    if tool_journey_telemetry:
-                        update_payload["toolJourneyTelemetry"] = tool_journey_telemetry
-                    if prompt_telemetry:
-                        update_payload["promptTelemetry"] = prompt_telemetry
-                    Chats.upsert_message_to_chat_by_id_and_message_id(
-                        metadata["chat_id"],
-                        metadata["message_id"],
-                        update_payload,
-                    )
+                # Deliver the complete response and telemetry before secondary DB
+                # and notification work. The client will also persist its complete
+                # in-memory history after receiving this event.
+                await event_emitter(
+                    {
+                        "type": "chat:completion",
+                        "data": data,
+                    }
+                )
+
+                try:
+                    if not ENABLE_REALTIME_CHAT_SAVE:
+                        # Save message in the database
+                        Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata["chat_id"],
+                            metadata["message_id"],
+                            {
+                                "done": True,
+                                "content": serialize_output(output),
+                                "output": output,
+                                **({"usage": usage} if usage else {}),
+                                **(
+                                    {"tokenTelemetry": token_telemetry}
+                                    if token_telemetry
+                                    else {}
+                                ),
+                                **(
+                                    {"tokenBranch": token_branch}
+                                    if token_branch
+                                    else {}
+                                ),
+                                **(
+                                    {"memoryTelemetry": memory_telemetry}
+                                    if memory_telemetry
+                                    else {}
+                                ),
+                                **(
+                                    {"toolJourneyTelemetry": tool_journey_telemetry}
+                                    if tool_journey_telemetry
+                                    else {}
+                                ),
+                                **(
+                                    {"promptTelemetry": prompt_telemetry}
+                                    if prompt_telemetry
+                                    else {}
+                                ),
+                            },
+                        )
+                    elif (
+                        usage
+                        or token_telemetry
+                        or token_branch
+                        or memory_telemetry
+                        or tool_journey_telemetry
+                        or prompt_telemetry
+                    ):
+                        update_payload = {"done": True}
+                        if usage:
+                            update_payload["usage"] = usage
+                        if token_telemetry:
+                            update_payload["tokenTelemetry"] = token_telemetry
+                        if token_branch:
+                            update_payload["tokenBranch"] = token_branch
+                        if memory_telemetry:
+                            update_payload["memoryTelemetry"] = memory_telemetry
+                        if tool_journey_telemetry:
+                            update_payload["toolJourneyTelemetry"] = (
+                                tool_journey_telemetry
+                            )
+                        if prompt_telemetry:
+                            update_payload["promptTelemetry"] = prompt_telemetry
+                        Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata["chat_id"],
+                            metadata["message_id"],
+                            update_payload,
+                        )
+                except Exception as e:
+                    log.warning("Failed to persist finalized chat response: %s", e)
 
                 content = "".join(content_parts)
 
@@ -9387,13 +9410,6 @@ async def streaming_chat_response_handler(response, ctx):
                                 "url": f"{request.app.state.config.WEBUI_URL}/c/{metadata['chat_id']}",
                             },
                         )
-
-                await event_emitter(
-                    {
-                        "type": "chat:completion",
-                        "data": data,
-                    }
-                )
 
                 await background_tasks_handler(ctx)
             except asyncio.CancelledError:
