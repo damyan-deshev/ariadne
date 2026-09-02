@@ -128,6 +128,7 @@ from open_webui.utils.misc import (
     get_content_from_message,
     convert_output_to_messages,
     convert_output_to_history_messages,
+    is_empty_historical_assistant_message,
     sanitize_historical_message_for_llm,
 )
 from open_webui.utils.tools import (
@@ -5721,7 +5722,10 @@ def process_messages_with_output(messages: list[dict]) -> list[dict]:
 
         # Strip 'output' field before adding (LLM shouldn't see it)
         clean_message = {k: v for k, v in message.items() if k != "output"}
-        processed.append(sanitize_historical_message_for_llm(clean_message))
+        clean_message = sanitize_historical_message_for_llm(clean_message)
+        if is_empty_historical_assistant_message(clean_message):
+            continue
+        processed.append(clean_message)
 
     return processed
 

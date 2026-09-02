@@ -371,9 +371,14 @@ def _strip_historical_tool_call_details(text_value: str) -> str:
     if not isinstance(text_value, str):
         return text_value
 
+    had_tool_call_details = bool(_HISTORICAL_TOOL_CALL_DETAILS_RE.search(text_value))
     stripped = _HISTORICAL_TOOL_CALL_DETAILS_RE.sub("", text_value)
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
-    return stripped or _HISTORICAL_TOOL_OUTPUT_REMOVAL_MARKER
+    if stripped:
+        return stripped
+    if had_tool_call_details:
+        return _HISTORICAL_TOOL_OUTPUT_REMOVAL_MARKER
+    return ""
 
 
 def _sanitize_historical_message_content(
@@ -458,6 +463,15 @@ def sanitize_historical_message_for_llm(message: dict) -> dict:
         sanitized["content"] = _HISTORICAL_TOOL_OUTPUT_REMOVAL_MARKER
 
     return sanitized
+
+
+def is_empty_historical_assistant_message(message: dict) -> bool:
+    """Return True for failed/cancelled assistant turns with no replay payload."""
+    return (
+        str(message.get("role") or "") == "assistant"
+        and not message.get("tool_calls")
+        and message.get("content") in (None, "", [])
+    )
 
 
 def convert_output_to_history_messages(output: list) -> list[dict]:

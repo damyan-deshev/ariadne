@@ -30,6 +30,7 @@ from open_webui.utils.misc import (
     convert_output_to_history_messages,
     get_content_from_message,
     get_message_list,
+    is_empty_historical_assistant_message,
     sanitize_historical_message_for_llm,
 )
 from open_webui.utils.task import get_task_model_id
@@ -633,7 +634,10 @@ def history_message_to_llm_messages(message: dict[str, Any]) -> list[dict[str, A
         for key, value in message.items()
         if key not in {"id", "parentId", "childrenIds", "files"}
     }
-    return [sanitize_historical_message_for_llm(clean_message)]
+    clean_message = sanitize_historical_message_for_llm(clean_message)
+    if is_empty_historical_assistant_message(clean_message):
+        return []
+    return [clean_message]
 
 
 def build_preview_builtin_tool_specs(

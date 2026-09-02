@@ -95,6 +95,19 @@ def test_process_messages_with_output_omits_history_reasoning_and_caps_tool_outp
     assert processed[3]["content"] == "Before\n\nAfter"
 
 
+def test_process_messages_with_output_omits_empty_assistant_turn():
+    messages = [
+        {"role": "user", "content": "before"},
+        {"role": "assistant", "content": ""},
+        {"role": "user", "content": "after"},
+    ]
+
+    assert middleware.process_messages_with_output(messages) == [
+        {"role": "user", "content": "before"},
+        {"role": "user", "content": "after"},
+    ]
+
+
 @pytest.mark.asyncio
 async def test_non_streaming_chat_response_persists_without_event_emitter(monkeypatch):
     saved_messages = []

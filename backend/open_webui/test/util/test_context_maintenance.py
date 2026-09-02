@@ -281,6 +281,15 @@ def test_history_message_to_llm_messages_uses_hygienic_replay(monkeypatch):
     assert "tool-result" not in llm_messages[1]["content"]
 
 
+def test_history_message_to_llm_messages_omits_empty_assistant_turn():
+    assert (
+        context_maintenance.history_message_to_llm_messages(
+            {"id": "failed", "role": "assistant", "content": ""}
+        )
+        == []
+    )
+
+
 def test_build_summary_prompt_requests_structured_state_snapshot():
     prompt = build_summary_prompt(transcript="user: hi", max_tokens=512)
 

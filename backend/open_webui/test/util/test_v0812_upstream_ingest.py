@@ -108,3 +108,11 @@ def test_sanitize_historical_message_for_llm_replaces_tool_only_messages_with_ma
     sanitized = sanitize_historical_message_for_llm(message)
 
     assert "[prior tool output omitted from cross-turn replay]" in sanitized["content"]
+
+
+def test_sanitize_historical_message_for_llm_preserves_empty_assistant_content():
+    sanitized = sanitize_historical_message_for_llm(
+        {"role": "assistant", "content": ""}
+    )
+
+    assert sanitized["content"] == ""
