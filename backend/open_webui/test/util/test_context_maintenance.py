@@ -5,6 +5,7 @@ import pytest
 import open_webui.utils.context_maintenance as context_maintenance
 import open_webui.utils.misc as misc
 from open_webui.utils.context_maintenance import (
+    build_llamacpp_probe_base_urls,
     build_aggregate_context_window_preview,
     build_summary_message,
     build_summary_prompt,
@@ -80,6 +81,111 @@ def test_extract_n_ctx_from_props_supports_llamacpp_shape():
     }
 
     assert extract_n_ctx_from_props(props) == 65536
+
+
+def test_extract_n_ctx_from_props_supports_current_llamacpp_shape():
+    props = {"default_generation_settings": {"n_ctx": 131072}}
+
+    assert extract_n_ctx_from_props(props) == 131072
+
+
+def test_extract_model_ctx_cap_uses_provider_metadata_when_args_are_missing():
+    model = {
+        "meta": {"n_ctx": 131072, "n_ctx_train": 262144},
+        "openai": {"meta": {"n_ctx": 131072}},
+    }
+
+    assert extract_model_ctx_cap(model) == 131072
+
+
+def test_extract_model_ctx_cap_keeps_legacy_args_precedence():
+    model = {
+        "status": {"args": ["--ctx-size", "32768"]},
+        "meta": {"n_ctx": 131072},
+    }
+
+    assert extract_model_ctx_cap(model) == 32768
+
+
+def test_llamacpp_probe_base_urls_preserve_old_route_and_add_unversioned_fallback():
+    assert build_llamacpp_probe_base_urls("http://llama.test:1234") == [
+        "http://llama.test:1234"
+    ]
+    assert build_llamacpp_probe_base_urls("http://llama.test:1234/v1/") == [
+        "http://llama.test:1234/v1",
+        "http://llama.test:1234",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_llamacpp_probe_falls_back_from_v1_to_root_operational_routes(
+    monkeypatch,
+):
+    class FakeResponse:
+        def __init__(self, status, *, text="", payload=None):
+            self.status = status
+            self._text = text
+            self._payload = payload
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def text(self):
+            return self._text
+
+        async def json(self):
+            return self._payload
+
+    class FakeSession:
+        calls = []
+
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, url, **_kwargs):
+            self.calls.append(url)
+            if url.endswith("/metrics") and not url.endswith("/v1/metrics"):
+                return FakeResponse(
+                    200,
+                    text="llamacpp:kv_cache_tokens 131072\n",
+                )
+            if url.endswith("/props") and not url.endswith("/v1/props"):
+                return FakeResponse(
+                    200,
+                    payload={"default_generation_settings": {"n_ctx": 131072}},
+                )
+            if url.endswith("/slots") and not url.endswith("/v1/slots"):
+                return FakeResponse(200, payload=[{"n_ctx": 131072}])
+            return FakeResponse(404)
+
+    context_maintenance._LLAMACPP_PROBE_CACHE.clear()
+    monkeypatch.setattr(context_maintenance.aiohttp, "ClientSession", FakeSession)
+    request = _make_request(OPENAI_API_BASE_URLS=["http://llama.test:1234/v1"])
+    model = {
+        "id": "llama-local",
+        "owned_by": "openai",
+        "urlIdx": 0,
+        "openai": {"id": "llama-local"},
+    }
+
+    probe = await context_maintenance.load_llamacpp_probe(request, model)
+
+    assert probe["n_ctx"] == 131072
+    assert probe["kv_cache_tokens"] == 131072
+    assert probe["source"] == "metrics"
+    assert "http://llama.test:1234/v1/metrics" in FakeSession.calls
+    assert "http://llama.test:1234/metrics" in FakeSession.calls
+    assert "http://llama.test:1234/props" in FakeSession.calls
+    assert "http://llama.test:1234/slots" in FakeSession.calls
 
 
 def test_render_preview_prompt_includes_roles_and_content():

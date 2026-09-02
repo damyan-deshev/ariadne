@@ -303,15 +303,69 @@ def parse_ctx_size_from_args(args: list[Any] | None) -> Optional[int]:
 
 
 def extract_model_ctx_cap(model: dict[str, Any]) -> Optional[int]:
-    candidates = [
-        model.get("status", {}).get("args"),
-        model.get("openai", {}).get("status", {}).get("args"),
+    openai_model = model.get("openai")
+    openai_model = openai_model if isinstance(openai_model, dict) else {}
+    model_status = model.get("status")
+    model_status = model_status if isinstance(model_status, dict) else {}
+    openai_status = openai_model.get("status")
+    openai_status = openai_status if isinstance(openai_status, dict) else {}
+    model_info = model.get("info")
+    model_info = model_info if isinstance(model_info, dict) else {}
+    model_meta = model.get("meta")
+    model_meta = model_meta if isinstance(model_meta, dict) else {}
+    info_meta = model_info.get("meta")
+    info_meta = info_meta if isinstance(info_meta, dict) else {}
+    openai_meta = openai_model.get("meta")
+    openai_meta = openai_meta if isinstance(openai_meta, dict) else {}
+
+    arg_candidates = [
+        model_status.get("args"),
+        openai_status.get("args"),
     ]
-    for args in candidates:
+    for args in arg_candidates:
         ctx = parse_ctx_size_from_args(args)
         if ctx:
             return ctx
+
+    metadata_candidates = [
+        model.get("n_ctx"),
+        model_meta.get("n_ctx"),
+        info_meta.get("n_ctx"),
+        openai_model.get("n_ctx"),
+        openai_meta.get("n_ctx"),
+    ]
+    for value in metadata_candidates:
+        if value is None:
+            continue
+        try:
+            ctx = int(value)
+        except (TypeError, ValueError):
+            continue
+        if ctx > 0:
+            return ctx
+
     return None
+
+
+def build_llamacpp_probe_base_urls(base_url: str) -> list[str]:
+    """Return compatible candidates for llama.cpp operational endpoints.
+
+    OpenAI-compatible connections commonly store a base URL ending in ``/v1``,
+    while llama.cpp exposes ``/metrics``, ``/props``, and ``/slots`` at the
+    server root. Preserve the configured URL as the first candidate for older
+    deployments that already expose operational routes below it.
+    """
+    configured_base_url = str(base_url or "").rstrip("/")
+    if not configured_base_url:
+        return []
+
+    candidates = [configured_base_url]
+    if configured_base_url.endswith("/v1"):
+        unversioned_base_url = configured_base_url[: -len("/v1")].rstrip("/")
+        if unversioned_base_url and unversioned_base_url not in candidates:
+            candidates.append(unversioned_base_url)
+
+    return candidates
 
 
 def parse_prometheus_metrics(text: str) -> dict[str, float]:
@@ -349,6 +403,7 @@ def extract_n_ctx_from_props(props: dict[str, Any] | None) -> Optional[int]:
 
     candidates = [
         props.get("n_ctx"),
+        props.get("default_generation_settings", {}).get("n_ctx"),
         props.get("default_generation_settings", {}).get("params", {}).get("n_ctx"),
     ]
 
@@ -1092,8 +1147,8 @@ async def load_llamacpp_probe(
         )
         return result
 
-    base_url = str(base_urls[url_idx]).rstrip("/")
-    if not base_url:
+    probe_base_urls = build_llamacpp_probe_base_urls(base_urls[url_idx])
+    if not probe_base_urls:
         _cache_set(
             _LLAMACPP_PROBE_CACHE,
             cache_key,
@@ -1108,61 +1163,67 @@ async def load_llamacpp_probe(
 
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            try:
-                async with session.get(
-                    f"{base_url}/metrics",
-                    params={"model": model_id, "autoload": "false"},
-                ) as response:
-                    if response.status == 200:
-                        metrics = parse_prometheus_metrics(await response.text())
-                        if metrics:
-                            result["source"] = "metrics"
-                            result["kv_cache_usage_ratio"] = metrics.get(
-                                "llamacpp:kv_cache_usage_ratio"
-                            )
-                            result["kv_cache_tokens"] = metrics.get(
-                                "llamacpp:kv_cache_tokens"
-                            )
-            except Exception:
-                pass
-
-            if result["n_ctx"] is None:
+            for probe_base_url in probe_base_urls:
                 try:
                     async with session.get(
-                        f"{base_url}/props",
+                        f"{probe_base_url}/metrics",
                         params={"model": model_id, "autoload": "false"},
                     ) as response:
                         if response.status == 200:
-                            props = await response.json()
-                            ctx = extract_n_ctx_from_props(props)
-                            if ctx:
-                                result["n_ctx"] = ctx
+                            metrics = parse_prometheus_metrics(await response.text())
+                            if metrics:
+                                result["source"] = "metrics"
+                                result["kv_cache_usage_ratio"] = metrics.get(
+                                    "llamacpp:kv_cache_usage_ratio"
+                                )
+                                result["kv_cache_tokens"] = metrics.get(
+                                    "llamacpp:kv_cache_tokens"
+                                )
+                                break
                 except Exception:
-                    pass
+                    continue
 
-            try:
-                async with session.get(
-                    f"{base_url}/slots",
-                    params={"model": model_id, "autoload": "false"},
-                ) as response:
-                    if response.status == 200:
-                        slots = await response.json()
-                        if isinstance(slots, list) and slots:
-                            result["source"] = (
-                                result["source"]
-                                if result["source"] == "metrics"
-                                else "slots"
-                            )
-                            if result["n_ctx"] is None:
-                                slot_ctxs = [
-                                    int(slot.get("n_ctx"))
-                                    for slot in slots
-                                    if slot.get("n_ctx")
-                                ]
-                                if slot_ctxs:
-                                    result["n_ctx"] = max(slot_ctxs)
-            except Exception:
-                pass
+            if result["n_ctx"] is None:
+                for probe_base_url in probe_base_urls:
+                    try:
+                        async with session.get(
+                            f"{probe_base_url}/props",
+                            params={"model": model_id, "autoload": "false"},
+                        ) as response:
+                            if response.status == 200:
+                                props = await response.json()
+                                ctx = extract_n_ctx_from_props(props)
+                                if ctx:
+                                    result["n_ctx"] = ctx
+                                    break
+                    except Exception:
+                        continue
+
+            for probe_base_url in probe_base_urls:
+                try:
+                    async with session.get(
+                        f"{probe_base_url}/slots",
+                        params={"model": model_id, "autoload": "false"},
+                    ) as response:
+                        if response.status == 200:
+                            slots = await response.json()
+                            if isinstance(slots, list) and slots:
+                                result["source"] = (
+                                    result["source"]
+                                    if result["source"] == "metrics"
+                                    else "slots"
+                                )
+                                if result["n_ctx"] is None:
+                                    slot_ctxs = [
+                                        int(slot.get("n_ctx"))
+                                        for slot in slots
+                                        if slot.get("n_ctx")
+                                    ]
+                                    if slot_ctxs:
+                                        result["n_ctx"] = max(slot_ctxs)
+                                break
+                except Exception:
+                    continue
     except Exception:
         _cache_set(
             _LLAMACPP_PROBE_CACHE,
