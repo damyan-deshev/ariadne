@@ -46,8 +46,8 @@ from open_webui.utils.misc import (
     openai_chat_completion_message_template,
 )
 from open_webui.utils.payload import (
+    apply_model_params_and_system_prompt_to_body,
     apply_model_params_to_body_openai,
-    apply_system_prompt_to_body,
 )
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
@@ -275,19 +275,20 @@ async def generate_function_chat_completion(
         },
     )
 
+    model_params = {}
     if model_info:
         if model_info.base_model_id:
             form_data["model"] = model_info.base_model_id
 
-        params = model_info.params.model_dump()
+        model_params = model_info.params.model_dump()
 
-        if params:
-            if metadata and metadata.get("system_prompt_override_present"):
-                system = metadata.get("system_prompt_override")
-            else:
-                system = params.pop("system", None)
-            form_data = apply_model_params_to_body_openai(params, form_data)
-            form_data = apply_system_prompt_to_body(system, form_data, metadata, user)
+    form_data = apply_model_params_and_system_prompt_to_body(
+        model_params,
+        form_data,
+        metadata,
+        user,
+        apply_model_params_to_body_openai,
+    )
 
     pipe_id = get_pipe_id(form_data)
     function_module = get_function_module_by_id(request, pipe_id)

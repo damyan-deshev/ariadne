@@ -53,9 +53,9 @@ from open_webui.utils.misc import (
     stream_wrapper,
 )
 from open_webui.utils.payload import (
+    apply_model_params_and_system_prompt_to_body,
     apply_model_params_to_body_ollama,
     apply_model_params_to_body_openai,
-    apply_system_prompt_to_body,
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.config import (
@@ -1328,6 +1328,7 @@ async def generate_chat_completion(
 
     model_id = payload["model"]
     model_info = Models.get_model_by_id(model_id)
+    model_params = {}
 
     if model_info:
         if model_info.base_model_id:
@@ -1338,17 +1339,7 @@ async def generate_chat_completion(
             )  # Use request's base_model_id if available
             payload["model"] = base_model_id
 
-        params = model_info.params.model_dump()
-
-        if params:
-            if metadata and metadata.get("system_prompt_override_present"):
-                system = metadata.get("system_prompt_override")
-            else:
-                system = params.pop("system", None)
-
-            payload = apply_model_params_to_body_ollama(params, payload)
-            if not bypass_system_prompt:
-                payload = apply_system_prompt_to_body(system, payload, metadata, user)
+        model_params = model_info.params.model_dump()
 
         # Check if user has access to the model
         if not bypass_filter and user.role == "user":
@@ -1375,6 +1366,15 @@ async def generate_chat_completion(
                 status_code=403,
                 detail="Model not found",
             )
+
+    payload = apply_model_params_and_system_prompt_to_body(
+        model_params,
+        payload,
+        metadata,
+        user,
+        apply_model_params_to_body_ollama,
+        bypass_system_prompt=bypass_system_prompt,
+    )
 
     url, url_idx = await get_ollama_url(request, payload["model"], url_idx)
     api_config = request.app.state.config.OLLAMA_API_CONFIGS.get(
@@ -1545,17 +1545,12 @@ async def generate_openai_chat_completion(
 
     model_id = completion_form.model
     model_info = Models.get_model_by_id(model_id)
+    model_params = {}
     if model_info:
         if model_info.base_model_id:
             payload["model"] = model_info.base_model_id
 
-        params = model_info.params.model_dump()
-
-        if params:
-            system = params.pop("system", None)
-
-            payload = apply_model_params_to_body_openai(params, payload)
-            payload = apply_system_prompt_to_body(system, payload, metadata, user)
+        model_params = model_info.params.model_dump()
 
         # Check if user has access to the model
         if user.role == "user":
@@ -1582,6 +1577,14 @@ async def generate_openai_chat_completion(
                 status_code=403,
                 detail="Model not found",
             )
+
+    payload = apply_model_params_and_system_prompt_to_body(
+        model_params,
+        payload,
+        metadata,
+        user,
+        apply_model_params_to_body_openai,
+    )
 
     url, url_idx = await get_ollama_url(request, payload["model"], url_idx)
     api_config = request.app.state.config.OLLAMA_API_CONFIGS.get(

@@ -1,4 +1,5 @@
 from open_webui.utils.payload import (
+    apply_model_params_and_system_prompt_to_body,
     apply_model_params_to_body_openai,
     convert_payload_openai_to_ollama,
 )
@@ -21,6 +22,66 @@ def test_openai_payload_preserves_llama_reasoning_controls():
     assert payload["thinking_budget_tokens"] == 12
     assert payload["reasoning_format"] == "deepseek"
     assert payload["reasoning_control"] is True
+
+
+def test_persona_system_prompt_applies_without_model_params():
+    payload = apply_model_params_and_system_prompt_to_body(
+        {},
+        {
+            "model": "passthrough-model",
+            "messages": [{"role": "user", "content": "Who are you?"}],
+        },
+        {
+            "system_prompt_override_present": True,
+            "system_prompt_override": "You are Aunt Gemma.",
+        },
+        None,
+        apply_model_params_to_body_openai,
+    )
+
+    assert payload["messages"] == [
+        {"role": "system", "content": "You are Aunt Gemma."},
+        {"role": "user", "content": "Who are you?"},
+    ]
+
+
+def test_persona_system_prompt_overrides_model_prompt_and_keeps_model_params():
+    payload = apply_model_params_and_system_prompt_to_body(
+        {"system": "Base model prompt", "temperature": "0.7"},
+        {
+            "model": "configured-model",
+            "messages": [{"role": "user", "content": "Who are you?"}],
+        },
+        {
+            "system_prompt_override_present": True,
+            "system_prompt_override": "You are Aunt Gemma.",
+        },
+        None,
+        apply_model_params_to_body_openai,
+    )
+
+    assert payload["temperature"] == 0.7
+    assert payload["messages"][0] == {
+        "role": "system",
+        "content": "You are Aunt Gemma.",
+    }
+
+
+def test_bypass_system_prompt_preserves_passthrough_messages():
+    messages = [{"role": "user", "content": "Who are you?"}]
+    payload = apply_model_params_and_system_prompt_to_body(
+        {},
+        {"model": "passthrough-model", "messages": list(messages)},
+        {
+            "system_prompt_override_present": True,
+            "system_prompt_override": "You are Aunt Gemma.",
+        },
+        None,
+        apply_model_params_to_body_openai,
+        bypass_system_prompt=True,
+    )
+
+    assert payload["messages"] == messages
 
 
 def test_openai_to_ollama_conversion_preserves_input_payload():

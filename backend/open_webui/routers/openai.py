@@ -48,8 +48,8 @@ from open_webui.constants import ERROR_MESSAGES
 
 
 from open_webui.utils.payload import (
+    apply_model_params_and_system_prompt_to_body,
     apply_model_params_to_body_openai,
-    apply_system_prompt_to_body,
 )
 from open_webui.utils.misc import (
     cleanup_response,
@@ -1458,6 +1458,7 @@ async def generate_chat_completion(
 
     model_id = form_data.get("model")
     model_info = Models.get_model_by_id(model_id)
+    model_params = {}
 
     # Check model info and override the payload
     if model_info:
@@ -1470,17 +1471,7 @@ async def generate_chat_completion(
             payload["model"] = base_model_id
             model_id = base_model_id
 
-        params = model_info.params.model_dump()
-
-        if params:
-            if metadata and metadata.get("system_prompt_override_present"):
-                system = metadata.get("system_prompt_override")
-            else:
-                system = params.pop("system", None)
-
-            payload = apply_model_params_to_body_openai(params, payload)
-            if not bypass_system_prompt:
-                payload = apply_system_prompt_to_body(system, payload, metadata, user)
+        model_params = model_info.params.model_dump()
 
         # Check if user has access to the model
         if not bypass_filter and user.role == "user":
@@ -1507,6 +1498,15 @@ async def generate_chat_completion(
                 status_code=403,
                 detail="Model not found",
             )
+
+    payload = apply_model_params_and_system_prompt_to_body(
+        model_params,
+        payload,
+        metadata,
+        user,
+        apply_model_params_to_body_openai,
+        bypass_system_prompt=bypass_system_prompt,
+    )
 
     # Check if model is already in app state cache to avoid expensive get_all_models() call
     models = request.app.state.OPENAI_MODELS

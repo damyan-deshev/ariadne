@@ -41,6 +41,37 @@ def apply_system_prompt_to_body(
     return form_data
 
 
+def apply_model_params_and_system_prompt_to_body(
+    params: Optional[dict],
+    form_data: dict,
+    metadata: Optional[dict],
+    user,
+    apply_model_params: Callable[[dict, dict], dict],
+    bypass_system_prompt: bool = False,
+) -> dict:
+    """Apply model params and an optional request-level system prompt override.
+
+    Persona system prompts are carried in request metadata and must not depend on
+    the provider model having a persisted Model row or non-empty model params.
+    """
+    params = dict(params or {})
+    system_prompt_override_present = bool(
+        metadata and metadata.get("system_prompt_override_present")
+    )
+    model_system = params.pop("system", None)
+    system = (
+        metadata.get("system_prompt_override")
+        if system_prompt_override_present
+        else model_system
+    )
+
+    form_data = apply_model_params(params, form_data)
+    if not bypass_system_prompt:
+        form_data = apply_system_prompt_to_body(system, form_data, metadata, user)
+
+    return form_data
+
+
 # inplace function: form_data is modified
 def apply_model_params_to_body(
     params: dict, form_data: dict, mappings: dict[str, Callable]
