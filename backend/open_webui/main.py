@@ -1908,6 +1908,7 @@ async def chat_completion(
         await get_all_models(request, user=user)
 
     model_id = form_data.get("model", None)
+    image_prefill = bool(form_data.pop("image_prefill", False))
     model_item = form_data.pop("model_item", {})
     tasks = form_data.pop("background_tasks", None)
     incoming_persona_id = form_data.pop("persona_id", None)
@@ -2154,6 +2155,7 @@ async def chat_completion(
             "variables": form_data.get("variables", {}),
             "model": model,
             "direct": model_item.get("direct", False),
+            "image_prefill": image_prefill,
             "persona_id": persona.id if persona else None,
             "params": {
                 "stream_delta_chunk_size": stream_delta_chunk_size,
@@ -2208,7 +2210,7 @@ async def chat_completion(
             metadata["tool_ids"] = form_data.get("tool_ids", None)
             metadata["features"] = form_data.get("features", {})
 
-        if metadata.get("chat_id") and user:
+        if metadata.get("chat_id") and user and not image_prefill:
             if not metadata["chat_id"].startswith(
                 "local:"
             ):  # temporary chats are not stored
@@ -2553,9 +2555,39 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model):
         try:
+            if image_prefill:
+                if (
+                    metadata.get("direct")
+                    or model.get("owned_by") in {"ollama", "arena"}
+                    or model.get("pipe")
+                ):
+                    return {
+                        "status": True,
+                        "prefilled": False,
+                        "reason": "unsupported_provider",
+                    }
+                if any(bool(value) for value in metadata.get("features", {}).values()):
+                    return {
+                        "status": True,
+                        "prefilled": False,
+                        "reason": "dynamic_features",
+                    }
+                if (
+                    metadata.get("tool_ids")
+                    and metadata.get("params", {}).get("function_calling") != "native"
+                ):
+                    return {
+                        "status": True,
+                        "prefilled": False,
+                        "reason": "non_native_tools",
+                    }
+
             form_data, metadata, events = await process_chat_payload(
                 request, form_data, user, metadata, model
             )
+
+            if image_prefill:
+                return await chat_completion_handler(request, form_data, user)
 
             response = metadata.pop("science_orchestration_response", None)
             if response is None:

@@ -47,6 +47,34 @@ def _message(message_id: str, role: str, content: str) -> dict:
     return {"id": message_id, "role": role, "content": content}
 
 
+def test_inject_image_files_places_stable_media_before_mutable_text():
+    messages = [
+        {
+            "id": "u1",
+            "role": "user",
+            "content": "question still being typed",
+            "files": [
+                {
+                    "id": "image-1",
+                    "type": "image",
+                    "url": "data:image/png;base64,IMAGE",
+                }
+            ],
+        }
+    ]
+
+    result = context_maintenance.inject_image_files_into_history(messages)
+
+    assert result[0]["content"] == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,IMAGE"},
+        },
+        {"type": "text", "text": "question still being typed"},
+    ]
+    assert "files" not in result[0]
+
+
 def test_parse_prometheus_metrics_extracts_kv_fields():
     metrics = parse_prometheus_metrics("""
         # HELP llamacpp:kv_cache_usage_ratio KV cache usage

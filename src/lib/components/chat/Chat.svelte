@@ -82,7 +82,7 @@
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
 	import type { ContextWindowPreview } from '$lib/apis/chats';
-	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import { generateOpenAIChatCompletion, prefillOpenAIChatImage } from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
 	import {
@@ -310,6 +310,11 @@
 	let generating = false;
 	let dragged = false;
 	let generationController = null;
+	let imagePrefillState: {
+		key: string;
+		controller: AbortController;
+		promise: Promise<unknown>;
+	} | null = null;
 	let contextWindowPreview: ContextWindowPreview | null = null;
 	let contextWindowRuntimeState: 'ready' | 'loading' | 'hidden' = 'ready';
 	let contextWindowPreviewRequestId = 0;
@@ -396,10 +401,14 @@
 	const getChatThinkingEnabled = (value: Record<string, unknown> | null | undefined) => {
 		const chatTemplateKwargs = getChatCustomParams(value).chat_template_kwargs;
 		const chatTemplateKwargsRecord =
-			chatTemplateKwargs && typeof chatTemplateKwargs === 'object' && !Array.isArray(chatTemplateKwargs)
+			chatTemplateKwargs &&
+			typeof chatTemplateKwargs === 'object' &&
+			!Array.isArray(chatTemplateKwargs)
 				? (chatTemplateKwargs as Record<string, unknown>)
 				: {};
-		return chatTemplateKwargsRecord.enable_thinking === true && getReasoningBudgetOverride(value) !== 0;
+		return (
+			chatTemplateKwargsRecord.enable_thinking === true && getReasoningBudgetOverride(value) !== 0
+		);
 	};
 
 	$: chatThinkingEnabled = getChatThinkingEnabled(params);
@@ -3020,6 +3029,276 @@
 			.map((token) => decodeURIComponent(JSON.parse(`"${token.replace(/"/g, '\\"')}"`)));
 	};
 
+	const prepareChatMessages = (_messages) => {
+		const systemMessageContent = hasOwn(params, 'system')
+			? params.system
+			: ($settings?.system ?? undefined);
+
+		let preparedMessages = [
+			systemMessageContent !== undefined && systemMessageContent !== null
+				? { role: 'system', content: `${systemMessageContent ?? ''}` }
+				: undefined,
+			..._messages.map((message) => ({
+				...message,
+				content: processDetails(message.content),
+				...(message.output ? { output: message.output } : {})
+			}))
+		].filter((message) => message);
+
+		preparedMessages = preparedMessages
+			.map((message) => {
+				const imageFiles = (message?.files ?? []).filter(
+					(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
+				);
+
+				return {
+					role: message.role,
+					...(message.role === 'user' && imageFiles.length > 0
+						? {
+								content: [
+									...imageFiles.map((file) => ({
+										type: 'image_url',
+										image_url: { url: file.url }
+									})),
+									{
+										type: 'text',
+										text: message?.merged?.content ?? message.content
+									}
+								]
+							}
+						: { content: message?.merged?.content ?? message.content })
+				};
+			})
+			.filter(
+				(message) =>
+					message?.role === 'system' ||
+					message?.role === 'user' ||
+					(typeof message?.content === 'string' && message.content.trim())
+			);
+
+		const skillMentionRegex = /<\$([^|>]+)\|?[^>]*>/g;
+		const skillIds = [];
+		for (const message of preparedMessages) {
+			const content =
+				typeof message.content === 'string'
+					? message.content
+					: (message.content?.find((part) => part.type === 'text')?.text ?? '');
+			for (const match of content.matchAll(skillMentionRegex)) {
+				if (!skillIds.includes(match[1])) skillIds.push(match[1]);
+			}
+		}
+
+		if (skillIds.length > 0) {
+			preparedMessages = preparedMessages.map((message) => {
+				if (typeof message.content === 'string') {
+					return { ...message, content: message.content.replace(/<\$[^>]+>/g, '').trim() };
+				}
+				if (Array.isArray(message.content)) {
+					return {
+						...message,
+						content: message.content.map((part) =>
+							part.type === 'text'
+								? { ...part, text: part.text.replace(/<\$[^>]+>/g, '').trim() }
+								: part
+						)
+					};
+				}
+				return message;
+			});
+		}
+
+		return { messages: preparedMessages, skillIds };
+	};
+
+	const getSelectedToolTargets = () => {
+		const toolIds = [];
+		const toolServerIds = [];
+		for (const toolId of selectedToolIds) {
+			if (toolId.startsWith('direct_server:')) {
+				const serverId = toolId.replace('direct_server:', '');
+				toolServerIds.push(!isNaN(parseInt(serverId)) ? parseInt(serverId) : serverId);
+			} else {
+				toolIds.push(toolId);
+			}
+		}
+		return { toolIds, toolServerIds };
+	};
+
+	const getImagePrefillKey = (modelId: string, message) => {
+		const messageFiles = message?.files ?? [];
+		const imageIds = messageFiles
+			.filter((file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/'))
+			.map((file) => file.id ?? file.url)
+			.sort();
+		if (imageIds.length === 0) return null;
+		const fileIds = messageFiles.map((file) => file.id ?? file.url).sort();
+		const skillMentions = [
+			...(typeof message?.content === 'string'
+				? message.content.matchAll(/<\$([^|>]+)\|?[^>]*>/g)
+				: [])
+		].map((match) => match[1]);
+
+		return JSON.stringify({
+			modelId,
+			parentId: message?.parentId ?? null,
+			imageIds,
+			fileIds,
+			chatFileIds: chatFiles.map((file) => file.id ?? file.url).sort(),
+			skillMentions,
+			personaId: selectedPersonaId,
+			personaSnapshot: selectedPersona ? getCurrentPersonaSnapshot() : null,
+			personaOverrides: selectedPersona ? getCurrentPersonaOverrides() : {},
+			sceneNote,
+			selectedToolIds: [...selectedToolIds].sort(),
+			selectedFilterIds: [...selectedFilterIds].sort(),
+			params,
+			features: getFeatures()
+		});
+	};
+
+	const abortImagePrefill = () => {
+		if (imagePrefillState) {
+			imagePrefillState.controller.abort();
+			imagePrefillState = null;
+		}
+	};
+
+	const startImagePrefill = async (uploadedFile) => {
+		await tick();
+		if ($temporaryChatEnabled || generating || (taskIds?.length ?? 0) > 0) return;
+
+		const selectedModelIds = atSelectedModel?.id
+			? [atSelectedModel.id]
+			: selectedModels.filter(Boolean);
+		if (selectedModelIds.length !== 1) return;
+
+		const model = $models.find((item) => item.id === selectedModelIds[0]);
+		if (!model || !(model.info?.meta?.capabilities?.vision ?? true)) return;
+		if (files.some((file) => file.status === 'uploading')) return;
+
+		const composeFiles = [...files];
+		if (!composeFiles.some((file) => file.id === uploadedFile?.id)) {
+			composeFiles.push(uploadedFile);
+		}
+		const imageFiles = composeFiles.filter(
+			(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
+		);
+		if (imageFiles.length === 0) return;
+
+		const parentId = history?.currentId ?? null;
+		const syntheticUserMessage = {
+			id: `image-prefill-${uuidv4()}`,
+			parentId,
+			childrenIds: [],
+			role: 'user',
+			content: '',
+			files: composeFiles,
+			timestamp: Math.floor(Date.now() / 1000)
+		};
+		const key = getImagePrefillKey(model.id, syntheticUserMessage);
+		if (!key) return;
+		if (imagePrefillState?.key === key) return;
+		abortImagePrefill();
+
+		const priorMessages = parentId ? createMessagesList(history, parentId) : [];
+		const { messages, skillIds } = prepareChatMessages([...priorMessages, syntheticUserMessage]);
+		const { toolIds, toolServerIds } = getSelectedToolTargets();
+		const activeTerminalId = $selectedTerminalId ?? null;
+		let requestParams = {
+			...$settings?.params,
+			...params,
+			stop: getStopTokens()
+		};
+		requestParams = applyTokenExplorerDefaults(
+			requestParams,
+			$settings?.tokenExplorerEnabled ?? false
+		);
+
+		let userLocation;
+		if ($settings?.userLocation) {
+			userLocation = await getAndUpdateUserLocation(localStorage.token).catch(() => undefined);
+		}
+
+		const messageFileIds = new Set(
+			[...priorMessages, syntheticUserMessage]
+				.flatMap((message) => message?.files ?? [])
+				.map((file) => file.id)
+				.filter(Boolean)
+		);
+		let requestFiles = structuredClone(chatFiles).filter((item) => messageFileIds.has(item.id));
+		requestFiles.push(
+			...composeFiles.filter(
+				(item) =>
+					['doc', 'text', 'note', 'chat', 'collection'].includes(item.type) ||
+					(item.type === 'file' && !(item?.content_type ?? '').startsWith('image/'))
+			)
+		);
+		requestFiles = requestFiles.filter(
+			(item, index, array) =>
+				array.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(item)) === index
+		);
+
+		const personaSnapshot = selectedPersona ? getCurrentPersonaSnapshot() : null;
+		const personaOverrides = selectedPersona ? getCurrentPersonaOverrides() : {};
+		const controller = new AbortController();
+		const promise = prefillOpenAIChatImage(
+			localStorage.token,
+			{
+				stream: false,
+				model: model.id,
+				messages,
+				params: requestParams,
+				files: requestFiles.length > 0 ? requestFiles : undefined,
+				filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined,
+				tool_ids: toolIds.length > 0 ? toolIds : undefined,
+				skill_ids: skillIds.length > 0 ? skillIds : undefined,
+				terminal_id: activeTerminalId ?? undefined,
+				tool_servers: [
+					...($toolServers ?? []).filter(
+						(server, idx) => toolServerIds.includes(idx) || toolServerIds.includes(server?.id)
+					),
+					...($terminalServers ?? []).filter((terminal) => !terminal.id)
+				],
+				features: getFeatures(),
+				variables: {
+					...getPromptVariables(
+						$user?.name,
+						$settings?.userLocation ? userLocation : undefined,
+						$user?.email
+					)
+				},
+				model_item: model,
+				chat_id: $chatId,
+				...(selectedPersonaId
+					? {
+							persona_id: selectedPersonaId,
+							persona_defaults_snapshot: personaSnapshot,
+							persona_chat_overrides: personaOverrides,
+							...(sceneNote ? { scene_note: sceneNote } : {})
+						}
+					: {}),
+				parent_id: syntheticUserMessage.id,
+				parent_message: syntheticUserMessage
+			},
+			controller.signal
+		)
+			.then((result) => {
+				if (result?.prefilled) {
+					console.debug('Image prefix prefilled:', result);
+				}
+				return result;
+			})
+			.catch((error) => {
+				console.debug('Image prefix prefill skipped:', error);
+				return null;
+			})
+			.finally(() => {
+				if (imagePrefillState?.controller === controller) imagePrefillState = null;
+			});
+
+		imagePrefillState = { key, controller, promise };
+	};
+
 	const sendMessageSocket = async (
 		model,
 		_messages,
@@ -3030,6 +3309,10 @@
 	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
+		const requestPrefillKey = getImagePrefillKey(model.id, userMessage);
+		if (imagePrefillState && imagePrefillState.key !== requestPrefillKey) {
+			abortImagePrefill();
+		}
 
 		const chatMessageFiles = _messages
 			.filter((message) => message.files)
@@ -3078,109 +3361,8 @@
 			$settings?.params?.stream_response ??
 			params?.stream_response ??
 			true;
-		const systemMessageContent = hasOwn(params, 'system')
-			? params.system
-			: ($settings?.system ?? undefined);
-
-		let messages = [
-			systemMessageContent !== undefined && systemMessageContent !== null
-				? {
-						role: 'system',
-						content: `${systemMessageContent ?? ''}`
-					}
-				: undefined,
-			..._messages.map((message) => ({
-				...message,
-				content: processDetails(message.content),
-				// Include output for temp chats (backend will use it and strip before LLM)
-				...(message.output ? { output: message.output } : {})
-			}))
-		].filter((message) => message);
-
-		messages = messages
-			.map((message, idx, arr) => {
-				const imageFiles = (message?.files ?? []).filter(
-					(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
-				);
-
-				return {
-					role: message.role,
-					...(message.role === 'user' && imageFiles.length > 0
-						? {
-								content: [
-									{
-										type: 'text',
-										text: message?.merged?.content ?? message.content
-									},
-									...imageFiles.map((file) => ({
-										type: 'image_url',
-										image_url: {
-											url: file.url
-										}
-									}))
-								]
-							}
-						: {
-								content: message?.merged?.content ?? message.content
-							})
-				};
-			})
-			.filter(
-				(message) =>
-					message?.role === 'system' || message?.role === 'user' || message?.content?.trim()
-			);
-
-		const toolIds = [];
-		const toolServerIds = [];
-
-		for (const toolId of selectedToolIds) {
-			if (toolId.startsWith('direct_server:')) {
-				let serverId = toolId.replace('direct_server:', '');
-				// Check if serverId is a number
-				if (!isNaN(parseInt(serverId))) {
-					toolServerIds.push(parseInt(serverId));
-				} else {
-					toolServerIds.push(serverId);
-				}
-			} else {
-				toolIds.push(toolId);
-			}
-		}
-
-		// Parse skill mentions (<$skillId|label>) from user messages
-		const skillMentionRegex = /<\$([^|>]+)\|?[^>]*>/g;
-		const skillIds = [];
-		for (const message of messages) {
-			const content =
-				typeof message.content === 'string' ? message.content : (message.content?.[0]?.text ?? '');
-			for (const match of content.matchAll(skillMentionRegex)) {
-				if (!skillIds.includes(match[1])) {
-					skillIds.push(match[1]);
-				}
-			}
-		}
-
-		// Strip skill mentions from message content
-		if (skillIds.length > 0) {
-			messages = messages.map((message) => {
-				if (typeof message.content === 'string') {
-					return {
-						...message,
-						content: message.content.replace(/<\$[^>]+>/g, '').trim()
-					};
-				} else if (Array.isArray(message.content)) {
-					return {
-						...message,
-						content: message.content.map((part) =>
-							part.type === 'text'
-								? { ...part, text: part.text.replace(/<\$[^>]+>/g, '').trim() }
-								: part
-						)
-					};
-				}
-				return message;
-			});
-		}
+		const { messages, skillIds } = prepareChatMessages(_messages);
+		const { toolIds, toolServerIds } = getSelectedToolTargets();
 
 		const activeTerminalId = $selectedTerminalId ?? null;
 		let requestParams = {
@@ -3680,10 +3862,12 @@
 
 	beforeNavigate(() => {
 		flushPendingDraft();
+		abortImagePrefill();
 	});
 
 	onDestroy(() => {
 		flushPendingDraft();
+		abortImagePrefill();
 	});
 
 	const moveChatHandler = async (chatId, folderId) => {
@@ -3946,6 +4130,7 @@
 									{stopResponse}
 									{createMessagePair}
 									{onUpload}
+									onFileUploaded={startImagePrefill}
 									{messageQueue}
 									onQueueSendNow={async (id) => {
 										const item = messageQueue.find((m) => m.id === id);
@@ -4031,6 +4216,7 @@
 									{createMessagePair}
 									{onSelect}
 									{onUpload}
+									onFileUploaded={startImagePrefill}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {
 											saveDraft(data);

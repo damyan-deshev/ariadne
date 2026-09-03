@@ -148,6 +148,7 @@
 	];
 
 	export let onUpload: Function = (e) => {};
+	export let onFileUploaded: Function = () => {};
 	export let onChange: Function = () => {};
 
 	export let createMessagePair: Function;
@@ -688,6 +689,7 @@
 			collection_name: '',
 			status: 'uploading',
 			size: file.size,
+			content_type: '',
 			error: '',
 			itemId: tempItemId,
 			...itemData
@@ -737,6 +739,11 @@
 					fileItem.url = `${uploadedFile.id}`;
 
 					files = files;
+					if ((fileItem.content_type ?? '').startsWith('image/')) {
+						Promise.resolve(onFileUploaded(structuredClone(fileItem))).catch((error) => {
+							console.debug('Image prefill hook failed:', error);
+						});
+					}
 				} else {
 					files = files.filter((item) => item?.itemId !== tempItemId);
 				}

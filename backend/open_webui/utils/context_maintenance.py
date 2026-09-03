@@ -727,12 +727,12 @@ def inject_image_files_into_history(
             text_content = item.get("content", "")
             if isinstance(text_content, str):
                 item["content"] = [
-                    {"type": "text", "text": text_content},
                     *[
                         {"type": "image_url", "image_url": {"url": f["url"]}}
                         for f in image_files
                         if f.get("url")
                     ],
+                    {"type": "text", "text": text_content},
                 ]
         item.pop("files", None)
         normalized.append(item)

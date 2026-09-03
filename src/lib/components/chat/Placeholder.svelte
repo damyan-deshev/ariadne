@@ -72,6 +72,7 @@
 	export let webSearchEnabled = false;
 
 	export let onUpload: Function = (e) => {};
+	export let onFileUploaded: Function = () => {};
 	export let onSelect = (e) => {};
 	export let onChange = (e) => {};
 
@@ -252,6 +253,7 @@
 					placeholder={$i18n.t('How can I help you today?')}
 					{onChange}
 					{onUpload}
+					{onFileUploaded}
 					on:submit={(e) => {
 						dispatch('submit', e.detail);
 					}}

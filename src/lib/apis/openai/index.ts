@@ -391,6 +391,41 @@ export const generateOpenAIChatCompletion = async (
 	return res;
 };
 
+export const prefillOpenAIChatImage = async (
+	token: string = '',
+	body: object,
+	signal?: AbortSignal,
+	url: string = `${WEBUI_BASE_URL}/api`
+) => {
+	let error = null;
+
+	const res = await fetch(`${url}/chat/completions`, {
+		signal,
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		credentials: 'include',
+		body: JSON.stringify({ ...body, image_prefill: true })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			if (err?.name === 'AbortError') return null;
+			error = err?.detail ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const synthesizeOpenAISpeech = async (
 	token: string = '',
 	speaker: string = 'alloy',

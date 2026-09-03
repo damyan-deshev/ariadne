@@ -72,6 +72,9 @@ MOE_EXPERTS_TIMEOUT_CAP_MS = 3000
 MOE_EXPERTS_CACHE_TTL_SECONDS = 30
 _MOE_EXPERTS_PROBE_CACHE: dict[tuple[int, str], tuple[float, dict]] = {}
 _MOE_EXPERTS_PROBE_CACHE_LOCK = asyncio.Lock()
+_IMAGE_PREFILL_CAPABILITY_CACHE: dict[str, tuple[float, Optional[str]]] = {}
+_IMAGE_PREFILL_CAPABILITY_CACHE_LOCK = asyncio.Lock()
+_IMAGE_PREFILL_CAPABILITY_TTL_SECONDS = 300
 _STRIP_PROXY_HEADERS = frozenset(
     {"Content-Encoding", "Content-Length", "Transfer-Encoding"}
 )
@@ -90,6 +93,183 @@ def _clean_proxy_headers(raw_headers) -> dict:
         for key, value in raw_headers.items()
         if key not in _STRIP_PROXY_HEADERS
     }
+
+
+def _llama_cpp_root_url(api_url: str) -> str:
+    """Return the server root for an OpenAI-compatible URL ending in /v1."""
+    normalized = api_url.rstrip("/")
+    return normalized[:-3] if normalized.endswith("/v1") else normalized
+
+
+def _extract_image_prefill_data(messages: list[dict]) -> list[str]:
+    """Extract raw base64 payloads in the same order as template media markers."""
+    result: list[str] = []
+    for message in messages or []:
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "image_url":
+                continue
+            image_url = item.get("image_url", {}).get("url", "")
+            if not isinstance(image_url, str) or not image_url.startswith("data:image/"):
+                return []
+            marker = ";base64,"
+            if marker not in image_url:
+                return []
+            result.append(image_url.split(marker, 1)[1])
+    return result
+
+
+async def _get_llama_cpp_media_marker(
+    session: aiohttp.ClientSession,
+    root_url: str,
+    headers: dict,
+    cookies: dict,
+) -> Optional[str]:
+    now = time.monotonic()
+    cached_value = _IMAGE_PREFILL_CAPABILITY_CACHE.get(root_url)
+    if cached_value and now - cached_value[0] < _IMAGE_PREFILL_CAPABILITY_TTL_SECONDS:
+        return cached_value[1]
+
+    async with _IMAGE_PREFILL_CAPABILITY_CACHE_LOCK:
+        cached_value = _IMAGE_PREFILL_CAPABILITY_CACHE.get(root_url)
+        if cached_value and now - cached_value[0] < _IMAGE_PREFILL_CAPABILITY_TTL_SECONDS:
+            return cached_value[1]
+
+        media_marker = None
+        try:
+            response = await session.get(
+                f"{root_url}/props",
+                headers=headers,
+                cookies=cookies,
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            )
+            if response.status == 200:
+                props = await response.json()
+                candidate = props.get("media_marker") if isinstance(props, dict) else None
+                if isinstance(candidate, str) and candidate:
+                    media_marker = candidate
+        except Exception as exc:
+            log.debug("Image prefill capability probe failed for %s: %s", root_url, exc)
+
+        _IMAGE_PREFILL_CAPABILITY_CACHE[root_url] = (time.monotonic(), media_marker)
+        return media_marker
+
+
+async def _generate_llama_cpp_image_prefill_unsafe(
+    *,
+    url: str,
+    payload: dict,
+    headers: dict,
+    cookies: dict,
+) -> dict:
+    """Prefill a llama.cpp prompt through its native multimodal completion API.
+
+    Unsupported or busy providers are a successful no-op so normal chat remains
+    fully backwards compatible.
+    """
+    images = _extract_image_prefill_data(payload.get("messages", []))
+    if not images:
+        return {"status": True, "prefilled": False, "reason": "no_base64_images"}
+
+    root_url = _llama_cpp_root_url(url)
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    async with aiohttp.ClientSession(trust_env=True, timeout=timeout) as session:
+        media_marker = await _get_llama_cpp_media_marker(
+            session, root_url, headers, cookies
+        )
+        if not media_marker:
+            return {"status": True, "prefilled": False, "reason": "unsupported"}
+
+        slots_response = await session.get(
+            f"{root_url}/slots?fail_on_no_slot=1",
+            headers=headers,
+            cookies=cookies,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        )
+        if slots_response.status == 503:
+            return {"status": True, "prefilled": False, "reason": "busy"}
+        if slots_response.status != 200:
+            return {"status": True, "prefilled": False, "reason": "slots_unavailable"}
+
+        template_payload = {
+            key: payload[key]
+            for key in (
+                "messages",
+                "tools",
+                "tool_choice",
+                "chat_template",
+                "chat_template_kwargs",
+                "reasoning_effort",
+            )
+            if key in payload
+        }
+        template_payload["add_generation_prompt"] = True
+        template_response = await session.post(
+            f"{root_url}/apply-template",
+            json=template_payload,
+            headers=headers,
+            cookies=cookies,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        )
+        if template_response.status != 200:
+            return {"status": True, "prefilled": False, "reason": "template_rejected"}
+
+        template_result = await template_response.json()
+        prompt = template_result.get("prompt") if isinstance(template_result, dict) else None
+        if not isinstance(prompt, str):
+            return {"status": True, "prefilled": False, "reason": "missing_prompt"}
+        if prompt.count(media_marker) != len(images):
+            return {"status": True, "prefilled": False, "reason": "marker_mismatch"}
+
+        prefix_end = prompt.rfind(media_marker) + len(media_marker)
+        completion_response = await session.post(
+            f"{root_url}/completion",
+            json={
+                "prompt": {
+                    "prompt_string": prompt[:prefix_end],
+                    "multimodal_data": images,
+                },
+                "n_predict": 0,
+                "cache_prompt": True,
+            },
+            headers=headers,
+            cookies=cookies,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        )
+        if completion_response.status != 200:
+            return {"status": True, "prefilled": False, "reason": "prefill_rejected"}
+
+        result = await completion_response.json()
+        timings = result.get("timings", {}) if isinstance(result, dict) else {}
+        return {
+            "status": True,
+            "prefilled": True,
+            "cached_tokens": timings.get("cache_n", 0),
+            "evaluated_tokens": timings.get("prompt_n", 0),
+            "prompt_ms": timings.get("prompt_ms"),
+        }
+
+
+async def _generate_llama_cpp_image_prefill(
+    *,
+    url: str,
+    payload: dict,
+    headers: dict,
+    cookies: dict,
+) -> dict:
+    """Run speculative prefill without allowing it to break normal chat."""
+    try:
+        return await _generate_llama_cpp_image_prefill_unsafe(
+            url=url,
+            payload=payload,
+            headers=headers,
+            cookies=cookies,
+        )
+    except Exception as exc:
+        log.debug("Image prefix prefill failed for %s: %s", url, exc)
+        return {"status": True, "prefilled": False, "reason": "prefill_error"}
 
 
 async def _maybe_build_sse_error_response(r: aiohttp.ClientResponse):
@@ -1622,6 +1802,16 @@ async def generate_chat_completion(
                     for part in message["content"]
                     if part.get("type") in ("input_text", "text")
                 )
+
+    if metadata and metadata.get("image_prefill"):
+        if api_config.get("azure", False) or is_responses:
+            return {"status": True, "prefilled": False, "reason": "unsupported"}
+        return await _generate_llama_cpp_image_prefill(
+            url=url,
+            payload=payload,
+            headers=headers,
+            cookies=cookies,
+        )
 
     append_prompt_telemetry(
         request,
