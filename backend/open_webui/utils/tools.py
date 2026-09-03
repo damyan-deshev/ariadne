@@ -823,6 +823,11 @@ def clean_properties(schema: dict):
     if "default" in schema and schema["default"] is None:
         del schema["default"]
 
+    # JSON Schema treats `required` as a set. Keep its serialized form stable so
+    # semantically identical tool specs do not invalidate llama.cpp prompt KV.
+    if isinstance(schema.get("required"), list):
+        schema["required"] = sorted(dict.fromkeys(schema["required"]))
+
     # fix missing type
     if "type" not in schema and "anyOf" not in schema and "properties" not in schema:
         schema["type"] = "string"
@@ -978,7 +983,7 @@ def convert_openapi_to_tool_payload(openapi_spec):
                                 resolved_schema["properties"]
                             )
                             if "required" in resolved_schema:
-                                tool["parameters"]["required"] = list(
+                                tool["parameters"]["required"] = sorted(
                                     set(
                                         tool["parameters"]["required"]
                                         + resolved_schema["required"]
@@ -1086,8 +1091,8 @@ async def set_terminal_servers(request: Request):
 
 async def get_terminal_servers(request: Request):
     """Return cached terminal server specs, loading if needed."""
-    terminal_servers = []
-    if request.app.state.redis is not None:
+    terminal_servers = getattr(request.app.state, "TERMINAL_SERVERS", None) or []
+    if not terminal_servers and request.app.state.redis is not None:
         try:
             terminal_servers = json.loads(
                 await request.app.state.redis.get("terminal_servers")
@@ -1156,18 +1161,16 @@ async def get_terminal_tools(
             headers["Authorization"] = f"Bearer {oauth_token.get('access_token', '')}"
     # auth_type == "none": no Authorization header
 
-    terminal_cwd = await get_terminal_cwd(connection.get("url", ""), headers, cookies)
-
     tools_dict = {}
     for spec in specs:
         function_name = spec["name"]
 
-        # Inject CWD into run_command description
         tool_spec = clean_openai_tool_schema(spec)
-        if function_name == "run_command" and terminal_cwd:
+        if function_name == "run_command":
             tool_spec["description"] = (
                 tool_spec.get("description", "")
-                + f"\n\nThe current working directory is: {terminal_cwd}"
+                + "\n\nCommands run in the terminal's current working directory. "
+                "Run `pwd` when the exact path matters."
             )
 
         def make_tool_function(fn_name, srv_data, hdrs, cks):

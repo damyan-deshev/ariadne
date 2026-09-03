@@ -1372,7 +1372,7 @@ export const convertOpenApiToToolPayload = (openApiSpec) => {
 							if (resolvedRequestSchema.required) {
 								tool.parameters.required = [
 									...new Set([...tool.parameters.required, ...resolvedRequestSchema.required])
-								];
+								].sort();
 							}
 						} else if (resolvedRequestSchema.type === 'array') {
 							tool.parameters = resolvedRequestSchema; // special case when root schema is an array
