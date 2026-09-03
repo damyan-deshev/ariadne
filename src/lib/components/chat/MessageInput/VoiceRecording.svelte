@@ -150,7 +150,7 @@
 		const file = blobToFile(audioBlob, `Recording-${dayjs().format('L LT')}.${ext}`);
 
 		if (transcribe) {
-			if ($config.audio.stt.engine === 'web' || ($settings?.audio?.stt?.engine ?? '') === 'web') {
+			if (($settings?.audio?.stt?.engine ?? $config.audio.stt.engine) === 'web') {
 				// with web stt, we don't need to send the file to the server
 				return;
 			}
@@ -158,7 +158,8 @@
 			const res = await transcribeAudio(
 				localStorage.token,
 				file,
-				$settings?.audio?.stt?.language
+				$settings?.audio?.stt?.language,
+				$settings?.audio?.stt?.engine
 			).catch((error) => {
 				toast.error(`${error}`);
 				return null;
@@ -262,7 +263,7 @@
 		}
 
 		if (transcribe) {
-			if ($config.audio.stt.engine === 'web' || ($settings?.audio?.stt?.engine ?? '') === 'web') {
+			if (($settings?.audio?.stt?.engine ?? $config.audio.stt.engine) === 'web') {
 				if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
 					// Create a SpeechRecognition object
 					speechRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();

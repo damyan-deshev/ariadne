@@ -158,7 +158,8 @@
 		const res = await transcribeAudio(
 			localStorage.token,
 			file,
-			$settings?.audio?.stt?.language
+			$settings?.audio?.stt?.language,
+			$settings?.audio?.stt?.engine
 		).catch((error) => {
 			toast.error(`${error}`);
 			return null;
@@ -366,6 +367,10 @@
 
 	// Get voice: model-specific > user settings > config default
 	const getVoiceId = () => {
+		if ($settings?.audio?.tts?.engine === 'supertonic') {
+			return $settings?.audio?.tts?.engineConfig?.voice ?? 'M1';
+		}
+
 		if (voicePreference?.voiceId) {
 			return voicePreference.voiceId;
 		}
@@ -495,13 +500,17 @@
 					if (url) {
 						audioCache.set(content, new Audio(url));
 					}
-				} else if ($config.audio.tts.engine !== '') {
+				} else if (
+					$config.audio.tts.engine !== '' ||
+					$settings?.audio?.tts?.engine === 'supertonic'
+				) {
 					const res = await synthesizeOpenAISpeech(
 						localStorage.token,
 						getVoiceId(),
 						content,
 						undefined,
-						voicePreference?.speed ?? undefined
+						voicePreference?.speed ?? undefined,
+						$settings?.audio?.tts?.engine
 					).catch((error) => {
 						console.error(error);
 						return null;
@@ -541,7 +550,7 @@
 						emoji = null;
 					}
 
-					if ($config.audio.tts.engine !== '') {
+					if ($config.audio.tts.engine !== '' || $settings?.audio?.tts?.engine === 'supertonic') {
 						try {
 							console.log(
 								'%c%s',

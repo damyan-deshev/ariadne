@@ -46,6 +46,11 @@ set -euo pipefail
 #                        1 => before start, stop any process listening on configured ports
 #   CORS_ALLOW_ORIGIN=""  (optional)
 #                        if empty in dev mode, this script auto-builds a LAN-safe origin list
+#   MANAGE_LOCAL_SPEECH_SERVICES=auto|0|1 (default: auto)
+#                        auto => manage the known user units when both are installed
+#                        1    => require and manage both speech sidecars
+#                        0    => leave speech sidecars untouched
+#   LOCAL_SPEECH_START_TIMEOUT=120 (seconds per sidecar readiness check)
 
 MODE="${MODE:-prod}"
 HOST="${HOST:-0.0.0.0}"
@@ -60,6 +65,8 @@ FRONTEND_BUILD_ON_START="${FRONTEND_BUILD_ON_START:-auto}"
 ALLOW_STALE_FRONTEND_ON_BUILD_FAIL="${ALLOW_STALE_FRONTEND_ON_BUILD_FAIL:-1}"
 UNBIND_PORTS="${UNBIND_PORTS:-0}"
 CORS_ALLOW_ORIGIN="${CORS_ALLOW_ORIGIN:-}"
+MANAGE_LOCAL_SPEECH_SERVICES="${MANAGE_LOCAL_SPEECH_SERVICES:-auto}"
+LOCAL_SPEECH_START_TIMEOUT="${LOCAL_SPEECH_START_TIMEOUT:-120}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="$ROOT_DIR/.run"
@@ -96,6 +103,109 @@ FRONTEND_BUILD_SIGNATURE_PATHS=(
 mkdir -p "$RUN_DIR"
 
 say() { printf "%s\n" "$*"; }
+
+local_speech_management_available() {
+  case "$MANAGE_LOCAL_SPEECH_SERVICES" in
+    0) return 1 ;;
+    auto|1) ;;
+    *)
+      say "Invalid MANAGE_LOCAL_SPEECH_SERVICES=$MANAGE_LOCAL_SPEECH_SERVICES (expected: auto|0|1)"
+      return 2
+      ;;
+  esac
+
+  if ! command -v systemctl >/dev/null 2>&1 \
+    || ! systemctl --user show-environment >/dev/null 2>&1; then
+    if [[ "$MANAGE_LOCAL_SPEECH_SERVICES" == "1" ]]; then
+      say "MANAGE_LOCAL_SPEECH_SERVICES=1 requires a working systemd user manager."
+      return 2
+    fi
+    return 1
+  fi
+
+  local unit load_state
+  for unit in supertonic-sidecar.service knowit-asr-parakeet.service; do
+    load_state="$(systemctl --user show "$unit" --property=LoadState --value 2>/dev/null || true)"
+    if [[ "$load_state" != "loaded" ]]; then
+      if [[ "$MANAGE_LOCAL_SPEECH_SERVICES" == "1" ]]; then
+        say "Required local speech unit is not installed: $unit"
+        return 2
+      fi
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+wait_for_http() {
+  local name="$1" url="$2" timeout="$3"
+  local started_at="$SECONDS"
+
+  while (( SECONDS - started_at < timeout )); do
+    if curl --fail --silent --show-error --max-time 2 "$url" >/dev/null 2>&1; then
+      say "$name is ready: $url"
+      return 0
+    fi
+    sleep 1
+  done
+
+  say "$name did not become ready within ${timeout}s: $url"
+  return 1
+}
+
+start_local_speech_services() {
+  local availability=0
+  local_speech_management_available || availability=$?
+  if [[ "$availability" == "1" ]]; then
+    say "Local speech sidecars: not managed on this host."
+    return 0
+  elif [[ "$availability" != "0" ]]; then
+    return 1
+  fi
+
+  say "Starting local speech sidecars sequentially…"
+  systemctl --user start supertonic-sidecar.service
+  if ! wait_for_http "Supertonic" "http://127.0.0.1:7788/openapi.json" "$LOCAL_SPEECH_START_TIMEOUT"; then
+    return 1
+  fi
+
+  systemctl --user start knowit-asr-parakeet.service
+  if ! wait_for_http "Parakeet" "http://127.0.0.1:18084/docs" "$LOCAL_SPEECH_START_TIMEOUT"; then
+    systemctl --user stop knowit-asr-parakeet.service supertonic-sidecar.service || true
+    return 1
+  fi
+}
+
+stop_local_speech_services() {
+  local availability=0
+  local_speech_management_available || availability=$?
+  if [[ "$availability" == "1" ]]; then
+    return 0
+  elif [[ "$availability" != "0" ]]; then
+    return 1
+  fi
+
+  say "Stopping local speech sidecars…"
+  systemctl --user stop knowit-asr-parakeet.service supertonic-sidecar.service
+}
+
+print_local_speech_status() {
+  local availability=0
+  local_speech_management_available || availability=$?
+  if [[ "$availability" == "1" ]]; then
+    say "Local speech sidecars: not managed on this host."
+    return 0
+  elif [[ "$availability" != "0" ]]; then
+    return 1
+  fi
+
+  local unit state
+  for unit in supertonic-sidecar.service knowit-asr-parakeet.service; do
+    state="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+    say "Local speech: $unit ${state:-unknown}"
+  done
+}
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { say "Missing command: $1"; exit 1; }
@@ -640,6 +750,8 @@ status() {
   say "Logs:"
   say "  $BACKEND_LOG"
   say "  $FRONTEND_LOG"
+
+  print_local_speech_status
 }
 
 start() {
@@ -664,8 +776,10 @@ start() {
         return 1
       fi
     fi
+    start_local_speech_services
     start_backend
   else
+    start_local_speech_services
     start_backend
     start_frontend
   fi
@@ -680,6 +794,7 @@ start() {
 stop() {
   stop_one "frontend" "$FRONTEND_PID"
   stop_one "backend" "$BACKEND_PID"
+  stop_local_speech_services
 
   if [[ "$UNBIND_PORTS" == "1" ]]; then
     ensure_port_is_free "Backend" "$BACKEND_PORT"
@@ -711,6 +826,9 @@ restart() {
         return 1
       fi
     fi
+
+    # Start/check the sidecars before interrupting a healthy backend.
+    start_local_speech_services
 
     stop_one "frontend" "$FRONTEND_PID"
     stop_one "backend" "$BACKEND_PID"

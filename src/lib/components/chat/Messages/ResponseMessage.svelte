@@ -239,6 +239,10 @@
 		const content = removeAllDetails(message.content);
 
 		const getVoiceId = () => {
+			if ($settings?.audio?.tts?.engine === 'supertonic') {
+				return $settings?.audio?.tts?.engineConfig?.voice ?? 'M1';
+			}
+
 			if (voicePreference?.voiceId) {
 				return voicePreference.voiceId;
 			}
@@ -254,7 +258,7 @@
 			return $config?.audio?.tts?.voice;
 		};
 
-		if ($config.audio.tts.engine === '') {
+		if ($config.audio.tts.engine === '' && $settings?.audio?.tts?.engine !== 'supertonic') {
 			let voices = [];
 			const getVoicesLoop = setInterval(() => {
 				voices = speechSynthesis.getVoices();
@@ -346,7 +350,8 @@
 						voiceId,
 						sentence,
 						undefined,
-						voicePreference?.speed ?? undefined
+						voicePreference?.speed ?? undefined,
+						$settings?.audio?.tts?.engine
 					).catch((error) => {
 						console.error(error);
 						toast.error(`${error}`);

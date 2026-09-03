@@ -64,11 +64,19 @@ export const updateAudioConfig = async (token: string, payload: OpenAIConfigForm
 	return res;
 };
 
-export const transcribeAudio = async (token: string, file: File, language?: string) => {
+export const transcribeAudio = async (
+	token: string,
+	file: File,
+	language?: string,
+	engine?: string
+) => {
 	const data = new FormData();
 	data.append('file', file);
 	if (language) {
 		data.append('language', language);
+	}
+	if (engine) {
+		data.append('engine', engine);
 	}
 
 	let error = null;
@@ -102,7 +110,8 @@ export const synthesizeOpenAISpeech = async (
 	speaker: string = 'alloy',
 	text: string = '',
 	model?: string,
-	speed?: number
+	speed?: number,
+	engine?: string
 ) => {
 	let error = null;
 
@@ -116,7 +125,8 @@ export const synthesizeOpenAISpeech = async (
 			input: text,
 			voice: speaker,
 			...(model && { model }),
-			...(typeof speed === 'number' ? { speed } : {})
+			...(typeof speed === 'number' ? { speed } : {}),
+			...(engine && { engine })
 		})
 	})
 		.then(async (res) => {

@@ -40,6 +40,7 @@ from open_webui.utils.misc import strict_match_mime_type
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.headers import include_user_info_headers
+from open_webui.utils.local_speech import concatenate_wav_bytes, split_bg_en_runs
 from open_webui.config import (
     WHISPER_MODEL_AUTO_UPDATE,
     WHISPER_COMPUTE_TYPE,
@@ -80,6 +81,14 @@ KOKORO_DEFAULT_VOICES = "backend/models/voices-v1.0.bin"
 KOKORO_DEFAULT_VOICE = "bm_fable"
 KOKORO_DEFAULT_LANG = "en-us"
 KOKORO_DEFAULT_SPEED = 1.0
+SUPERTONIC_DEFAULT_API_URL = "http://127.0.0.1:7788/v1/audio/speech"
+SUPERTONIC_DEFAULT_MODEL = "supertonic-3"
+SUPERTONIC_DEFAULT_VOICE = "M1"
+SUPERTONIC_VOICES = tuple(
+    [f"F{index}" for index in range(1, 6)]
+    + [f"M{index}" for index in range(1, 6)]
+)
+PARAKEET_DEFAULT_API_URL = "http://127.0.0.1:18084/v1/transcribe"
 OMNIVOICE_DEFAULT_MODEL = "k2-fsa/OmniVoice"
 OMNIVOICE_DEFAULT_SAMPLE_RATE = 24000
 OMNIVOICE_DEFAULT_VOICES = {
@@ -639,14 +648,59 @@ def sanitize_tts_input(text: str) -> str:
     return text.strip()
 
 
+async def synthesize_supertonic(payload: dict) -> tuple[bytes, list[dict[str, str]]]:
+    """Synthesize one Ariadne request through the local Supertonic sidecar."""
+
+    text = payload.get("input", "")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="Missing `input` text")
+
+    segments = split_bg_en_runs(text)
+    if not segments:
+        raise HTTPException(status_code=400, detail="Missing `input` text")
+
+    api_url = os.getenv("AUDIO_TTS_SUPERTONIC_API_URL", SUPERTONIC_DEFAULT_API_URL)
+    model = os.getenv("AUDIO_TTS_SUPERTONIC_MODEL", SUPERTONIC_DEFAULT_MODEL)
+    requested_voice = payload.get("voice")
+    voice = (
+        requested_voice
+        if requested_voice in SUPERTONIC_VOICES
+        else os.getenv("AUDIO_TTS_SUPERTONIC_VOICE", SUPERTONIC_DEFAULT_VOICE)
+    )
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    audio_parts: list[bytes] = []
+    rendered_segments: list[dict[str, str]] = []
+
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        for language, segment_text in segments:
+            sidecar_payload = {
+                "model": model,
+                "input": segment_text,
+                "voice": voice,
+                "lang": language,
+                "response_format": "wav",
+            }
+            if isinstance(payload.get("speed"), (int, float)):
+                sidecar_payload["speed"] = payload["speed"]
+
+            async with session.post(api_url, json=sidecar_payload) as response:
+                if response.status >= 400:
+                    detail = await response.text()
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Supertonic: {detail}",
+                    )
+                audio_parts.append(await response.read())
+                rendered_segments.append(
+                    {"language": language, "text": segment_text}
+                )
+
+    return concatenate_wav_bytes(audio_parts), rendered_segments
+
+
 @router.post("/speech")
 async def speech(request: Request, user=Depends(get_verified_user)):
-    if request.app.state.config.TTS_ENGINE == "":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=ERROR_MESSAGES.NOT_FOUND,
-        )
-
     if user.role != "admin" and not has_permission(
         user.id, "chat.tts", request.app.state.config.USER_PERMISSIONS
     ):
@@ -656,15 +710,37 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         )
 
     body = await request.body()
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception as e:
+        log.exception(e)
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    requested_engine = payload.pop("engine", None)
+    if requested_engine not in {None, "supertonic"}:
+        raise HTTPException(status_code=400, detail="Unsupported per-request TTS engine")
+
+    effective_engine = requested_engine or request.app.state.config.TTS_ENGINE
+    if effective_engine == "":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    effective_model = (
+        os.getenv("AUDIO_TTS_SUPERTONIC_MODEL", SUPERTONIC_DEFAULT_MODEL)
+        if effective_engine == "supertonic"
+        else request.app.state.config.TTS_MODEL
+    )
     name = hashlib.sha256(
         body
-        + str(request.app.state.config.TTS_ENGINE).encode("utf-8")
-        + str(request.app.state.config.TTS_MODEL).encode("utf-8")
+        + str(effective_engine).encode("utf-8")
+        + str(effective_model).encode("utf-8")
     ).hexdigest()
 
     speech_ext = (
         "wav"
-        if request.app.state.config.TTS_ENGINE in {"kokoro_onnx", "omnivoice"}
+        if effective_engine in {"kokoro_onnx", "omnivoice", "supertonic"}
         else "mp3"
     )
     file_path = SPEECH_CACHE_DIR.joinpath(f"{name}.{speech_ext}")
@@ -674,18 +750,19 @@ async def speech(request: Request, user=Depends(get_verified_user)):
     if file_path.is_file():
         return FileResponse(file_path)
 
-    payload = None
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception as e:
-        log.exception(e)
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
     if isinstance(payload.get("input"), str):
         payload["input"] = sanitize_tts_input(payload["input"])
 
     r = None
-    if request.app.state.config.TTS_ENGINE == "openai":
+    if effective_engine == "supertonic":
+        audio, segments = await synthesize_supertonic(payload)
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(audio)
+        async with aiofiles.open(file_body_path, "w") as f:
+            await f.write(json.dumps({**payload, "engine": "supertonic", "segments": segments}))
+        return FileResponse(file_path, media_type="audio/wav")
+
+    if effective_engine == "openai":
         payload["model"] = request.app.state.config.TTS_MODEL
 
         try:
@@ -744,7 +821,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                 detail=detail,
             )
 
-    elif request.app.state.config.TTS_ENGINE == "elevenlabs":
+    elif effective_engine == "elevenlabs":
         voice_id = payload.get("voice", "")
 
         if voice_id not in get_available_voices(request):
@@ -799,7 +876,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                 detail=detail if detail else "Open WebUI: Server Connection Error",
             )
 
-    elif request.app.state.config.TTS_ENGINE == "azure":
+    elif effective_engine == "azure":
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception as e:
@@ -858,7 +935,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                 detail=detail if detail else "Open WebUI: Server Connection Error",
             )
 
-    elif request.app.state.config.TTS_ENGINE == "transformers":
+    elif effective_engine == "transformers":
         payload = None
         try:
             payload = json.loads(body.decode("utf-8"))
@@ -896,7 +973,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             await f.write(json.dumps(payload))
 
         return FileResponse(file_path)
-    elif request.app.state.config.TTS_ENGINE == "kokoro_onnx":
+    elif effective_engine == "kokoro_onnx":
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception as e:
@@ -974,7 +1051,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         except Exception as e:
             log.exception(e)
             raise HTTPException(status_code=500, detail=f"Kokoro TTS failed: {e}")
-    elif request.app.state.config.TTS_ENGINE == "omnivoice":
+    elif effective_engine == "omnivoice":
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception as e:
@@ -1091,7 +1168,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             raise HTTPException(status_code=500, detail=f"OmniVoice TTS failed: {e}")
 
 
-def transcription_handler(request, file_path, metadata, user=None):
+def transcription_handler(request, file_path, metadata, user=None, engine=None):
     filename = os.path.basename(file_path)
     file_dir = os.path.dirname(file_path)
     id = filename.split(".")[0]
@@ -1103,7 +1180,9 @@ def transcription_handler(request, file_path, metadata, user=None):
         None,  # Always fallback to None in case transcription fails
     ]
 
-    if request.app.state.config.STT_ENGINE == "":
+    effective_engine = engine or request.app.state.config.STT_ENGINE
+
+    if effective_engine == "":
         if request.app.state.faster_whisper_model is None:
             request.app.state.faster_whisper_model = set_faster_whisper_model(
                 request.app.state.config.WHISPER_MODEL
@@ -1132,7 +1211,47 @@ def transcription_handler(request, file_path, metadata, user=None):
 
         log.debug(data)
         return data
-    elif request.app.state.config.STT_ENGINE == "openai":
+    elif effective_engine == "parakeet":
+        r = None
+        try:
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if not mime_type:
+                mime_type = "audio/wav"
+
+            with open(file_path, "rb") as audio_file:
+                r = requests.post(
+                    url=os.getenv(
+                        "AUDIO_STT_PARAKEET_API_URL", PARAKEET_DEFAULT_API_URL
+                    ),
+                    files={"audio": (filename, audio_file, mime_type)},
+                    timeout=AIOHTTP_CLIENT_TIMEOUT,
+                )
+
+            r.raise_for_status()
+            response = r.json()
+            transcript = str(response.get("text", "")).strip()
+            if not transcript:
+                raise ValueError("Empty transcript in Parakeet response")
+
+            data = {"text": transcript}
+            transcript_file = f"{file_dir}/{id}.json"
+            with open(transcript_file, "w") as f:
+                json.dump(data, f)
+            return data
+        except (requests.exceptions.RequestException, ValueError) as e:
+            log.exception(e)
+            detail = None
+            if r is not None:
+                try:
+                    detail = r.json().get("detail")
+                except Exception:
+                    detail = r.text
+            raise HTTPException(
+                status_code=getattr(r, "status_code", 502) if r is not None else 502,
+                detail=detail or "Parakeet speech-to-text service is unavailable",
+            )
+
+    elif effective_engine == "openai":
         r = None
         try:
             for language in languages:
@@ -1185,7 +1304,7 @@ def transcription_handler(request, file_path, metadata, user=None):
 
             raise Exception(detail if detail else "Open WebUI: Server Connection Error")
 
-    elif request.app.state.config.STT_ENGINE == "deepgram":
+    elif effective_engine == "deepgram":
         try:
             # Determine the MIME type of the file
             mime, _ = mimetypes.guess_type(file_path)
@@ -1257,7 +1376,7 @@ def transcription_handler(request, file_path, metadata, user=None):
                     detail = f"External: {e}"
             raise Exception(detail if detail else "Open WebUI: Server Connection Error")
 
-    elif request.app.state.config.STT_ENGINE == "azure":
+    elif effective_engine == "azure":
         # Check file exists and size
         if not os.path.exists(file_path):
             raise HTTPException(status_code=400, detail="Audio file not found")
@@ -1393,7 +1512,7 @@ def transcription_handler(request, file_path, metadata, user=None):
                 detail=detail if detail else "Open WebUI: Server Connection Error",
             )
 
-    elif request.app.state.config.STT_ENGINE == "mistral":
+    elif effective_engine == "mistral":
         # Check file exists
         if not os.path.exists(file_path):
             raise HTTPException(status_code=400, detail="Audio file not found")
@@ -1577,7 +1696,11 @@ def transcription_handler(request, file_path, metadata, user=None):
 
 
 def transcribe(
-    request: Request, file_path: str, metadata: Optional[dict] = None, user=None
+    request: Request,
+    file_path: str,
+    metadata: Optional[dict] = None,
+    user=None,
+    engine: Optional[str] = None,
 ):
     log.info(f"transcribe: {file_path} {metadata}")
 
@@ -1606,7 +1729,12 @@ def transcribe(
             # Submit tasks for each chunk_path
             futures = [
                 executor.submit(
-                    transcription_handler, request, chunk_path, metadata, user
+                    transcription_handler,
+                    request,
+                    chunk_path,
+                    metadata,
+                    user,
+                    engine,
                 )
                 for chunk_path in chunk_paths
             ]
@@ -1702,6 +1830,7 @@ def transcription(
     request: Request,
     file: UploadFile = File(...),
     language: Optional[str] = Form(None),
+    engine: Optional[str] = Form(None),
     user=Depends(get_verified_user),
 ):
     if user.role != "admin" and not has_permission(
@@ -1711,6 +1840,10 @@ def transcription(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+    if engine not in {None, "", "parakeet"}:
+        raise HTTPException(status_code=400, detail="Unsupported per-request STT engine")
+    engine = engine or None
+
     log.info(f"file.content_type: {file.content_type}")
     stt_supported_content_types = getattr(
         request.app.state.config, "STT_SUPPORTED_CONTENT_TYPES", []
@@ -1748,7 +1881,7 @@ def transcription(
             if language:
                 metadata = {"language": language}
 
-            result = transcribe(request, file_path, metadata, user)
+            result = transcribe(request, file_path, metadata, user, engine)
 
             return {
                 **result,

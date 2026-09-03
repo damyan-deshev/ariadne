@@ -2224,7 +2224,10 @@
 																return;
 															}
 
-															if ($config.audio.stt.engine === 'web') {
+															if (
+																($settings?.audio?.stt?.engine ?? $config.audio.stt.engine) ===
+																'web'
+															) {
 																toast.error(
 																	$i18n.t('Call feature is not supported when using Web STT engine')
 																);

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { createEventDispatcher, onMount, getContext } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, getContext } from 'svelte';
 
 	import { user, settings, config } from '$lib/stores';
-	import { getVoices as _getVoices } from '$lib/apis/audio';
+	import { getVoices as _getVoices, synthesizeOpenAISpeech } from '$lib/apis/audio';
 
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
@@ -36,6 +36,74 @@
 	// Audio speed control
 	let playbackRate = 1;
 
+	const SUPERTONIC_VOICES = [
+		{ id: 'F1', name: 'Mila — female (F1)' },
+		{ id: 'F2', name: 'Elena — female (F2)' },
+		{ id: 'F3', name: 'Sofia — female (F3)' },
+		{ id: 'F4', name: 'Raya — female (F4)' },
+		{ id: 'F5', name: 'Nora — female (F5)' },
+		{ id: 'M1', name: 'Alex — male (M1)' },
+		{ id: 'M2', name: 'Boris — male (M2)' },
+		{ id: 'M3', name: 'Viktor — male (M3)' },
+		{ id: 'M4', name: 'Martin — male (M4)' },
+		{ id: 'M5', name: 'Nikola — male (M5)' }
+	];
+	const DEFAULT_SUPERTONIC_PREVIEW_TEXT =
+		'Здравей! Това е кратък гласов тест. Hello! This is a short voice preview.';
+	let supertonicPreviewText = DEFAULT_SUPERTONIC_PREVIEW_TEXT;
+	let supertonicPreviewLoading = false;
+	let supertonicPreviewAudio: HTMLAudioElement | null = null;
+	let supertonicPreviewUrl = '';
+
+	const cleanupSupertonicPreview = () => {
+		supertonicPreviewAudio?.pause();
+		supertonicPreviewAudio = null;
+
+		if (supertonicPreviewUrl) {
+			URL.revokeObjectURL(supertonicPreviewUrl);
+			supertonicPreviewUrl = '';
+		}
+	};
+
+	const previewSupertonicVoice = async () => {
+		const previewText = supertonicPreviewText.trim();
+		if (!previewText) {
+			toast.error($i18n.t('Preview text is required'));
+			return;
+		}
+
+		supertonicPreviewLoading = true;
+		cleanupSupertonicPreview();
+
+		try {
+			const res = await synthesizeOpenAISpeech(
+				localStorage.token,
+				voice || 'M1',
+				previewText,
+				undefined,
+				undefined,
+				'supertonic'
+			);
+
+			if (!res) {
+				return;
+			}
+
+			const url = URL.createObjectURL(await res.blob());
+			const audio = new Audio(url);
+			supertonicPreviewUrl = url;
+			audio.onended = cleanupSupertonicPreview;
+			audio.onerror = cleanupSupertonicPreview;
+			supertonicPreviewAudio = audio;
+			await audio.play();
+		} catch (error) {
+			console.error(error);
+			toast.error(`${error}`);
+		} finally {
+			supertonicPreviewLoading = false;
+		}
+	};
+
 	const getVoices = async () => {
 		if (TTSEngine === 'browser-kokoro') {
 			if (!TTSModel) {
@@ -49,6 +117,18 @@
 					localService: false
 				};
 			});
+			if (!voices.some((item) => item.id === voice)) {
+				const savedVoice = $settings?.audio?.tts?.voice;
+				voice = voices.some((item) => item.id === savedVoice) ? savedVoice : (voices[0]?.id ?? '');
+			}
+		} else if (TTSEngine === 'supertonic') {
+			voices = SUPERTONIC_VOICES.map((item) => ({
+				...item,
+				localService: true
+			}));
+			if (!voices.some((item) => item.id === voice)) {
+				voice = TTSEngineConfig?.voice ?? 'M1';
+			}
 		} else {
 			if ($config.audio.tts.engine === '') {
 				const getVoicesLoop = setInterval(async () => {
@@ -94,7 +174,9 @@
 		TTSEngine = $settings?.audio?.tts?.engine ?? '';
 		TTSEngineConfig = $settings?.audio?.tts?.engineConfig ?? {};
 
-		if ($settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice) {
+		if (TTSEngine === 'supertonic') {
+			voice = TTSEngineConfig?.voice ?? 'M1';
+		} else if ($settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice) {
 			voice = $settings?.audio?.tts?.voice ?? $config.audio.tts.voice ?? '';
 		} else {
 			voice = $config.audio.tts.voice ?? '';
@@ -105,13 +187,17 @@
 		await getVoices();
 	});
 
-	$: if (TTSEngine && TTSEngineConfig) {
-		onTTSEngineChange();
-	}
+	onDestroy(cleanupSupertonicPreview);
 
 	const onTTSEngineChange = async () => {
+		cleanupSupertonicPreview();
 		if (TTSEngine === 'browser-kokoro') {
 			await loadKokoro();
+		} else if (TTSEngine === 'supertonic') {
+			await getVoices();
+		} else {
+			voice = $config.audio.tts.voice ?? '';
+			await getVoices();
 		}
 	};
 
@@ -126,8 +212,7 @@
 
 				try {
 					const model_id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-					const dtype =
-						typeof TTSEngineConfig?.dtype === 'string' ? TTSEngineConfig.dtype : 'fp32';
+					const dtype = typeof TTSEngineConfig?.dtype === 'string' ? TTSEngineConfig.dtype : 'fp32';
 					const devices = !!navigator?.gpu ? ['webgpu', 'wasm'] : ['wasm'];
 
 					const { KokoroTTS } = await import('kokoro-js');
@@ -186,7 +271,10 @@
 				},
 				tts: {
 					engine: TTSEngine !== '' ? TTSEngine : undefined,
-					engineConfig: TTSEngineConfig,
+					engineConfig:
+						TTSEngine === 'supertonic'
+							? { ...TTSEngineConfig, voice: voice || 'M1' }
+							: TTSEngineConfig,
 					playbackRate: playbackRate,
 					voice: voice !== '' ? voice : undefined,
 					defaultVoice: $config?.audio?.tts?.voice ?? '',
@@ -212,6 +300,7 @@
 							placeholder={$i18n.t('Select an engine')}
 						>
 							<option value="">{$i18n.t('Default')}</option>
+							<option value="parakeet">{$i18n.t('Parakeet (Server)')}</option>
 							<option value="web">{$i18n.t('Web API')}</option>
 						</select>
 					</div>
@@ -271,10 +360,12 @@
 					<select
 						class="w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
 						bind:value={TTSEngine}
+						on:change={onTTSEngineChange}
 						aria-label={$i18n.t('Text-to-Speech Engine')}
 						placeholder={$i18n.t('Select an engine')}
 					>
 						<option value="">{$i18n.t('Default')}</option>
+						<option value="supertonic">{$i18n.t('Supertonic (Server)')}</option>
 						<option value="browser-kokoro">{$i18n.t('Kokoro.js (Browser)')}</option>
 					</select>
 				</div>
@@ -287,6 +378,7 @@
 						<select
 							class="w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
 							bind:value={TTSEngineConfig.dtype}
+							on:change={loadKokoro}
 							aria-label={$i18n.t('Kokoro.js Dtype')}
 							placeholder={$i18n.t('Select dtype')}
 						>
@@ -339,7 +431,55 @@
 
 		<hr class=" border-gray-100/30 dark:border-gray-850/30" />
 
-		{#if TTSEngine === 'browser-kokoro'}
+		{#if TTSEngine === 'supertonic'}
+			<div class="space-y-3">
+				<div class=" mb-2.5 text-sm font-medium">{$i18n.t('Set Voice')}</div>
+				<div class="flex w-full">
+					<div class="flex-1">
+						<select
+							class="w-full text-sm bg-transparent dark:text-gray-300 outline-hidden"
+							bind:value={voice}
+							aria-label={$i18n.t('Voice')}
+						>
+							{#each voices as _voice}
+								<option value={_voice.id}>{_voice.name}</option>
+							{/each}
+						</select>
+					</div>
+				</div>
+
+				<div>
+					<label class="mb-1.5 block text-xs font-medium" for="supertonic-preview-text">
+						{$i18n.t('Preview Text')}
+					</label>
+					<textarea
+						id="supertonic-preview-text"
+						class="w-full resize-y rounded-lg bg-gray-50 px-3 py-2 text-sm outline-hidden dark:bg-gray-850 dark:text-gray-300"
+						rows="3"
+						bind:value={supertonicPreviewText}
+						placeholder={$i18n.t('Enter a sample text to preview this voice')}
+					></textarea>
+					<div class="mt-2 flex items-center gap-2">
+						<button
+							class="flex items-center gap-1.5 rounded-lg bg-gray-100 px-2.5 py-2 text-xs text-gray-800 transition hover:bg-gray-200 disabled:opacity-60 dark:bg-gray-850 dark:text-gray-100 dark:hover:bg-gray-800"
+							type="button"
+							on:click={previewSupertonicVoice}
+							disabled={supertonicPreviewLoading}
+						>
+							{#if supertonicPreviewLoading}
+								<Spinner className="size-3.5" />
+								{$i18n.t('Generating preview...')}
+							{:else}
+								{$i18n.t('Preview Voice')}
+							{/if}
+						</button>
+						<div class="text-xs text-gray-400 dark:text-gray-500">
+							{$i18n.t('Uses the selected voice without saving settings first.')}
+						</div>
+					</div>
+				</div>
+			</div>
+		{:else if TTSEngine === 'browser-kokoro'}
 			{#if TTSModel}
 				<div>
 					<div class=" mb-2.5 text-sm font-medium">{$i18n.t('Set Voice')}</div>
