@@ -21,6 +21,7 @@ set -euo pipefail
 #   MODE=dev|prod        (default: prod)
 #   HOST=0.0.0.0         (default: 0.0.0.0)  # bind for LAN access
 #   BACKEND_PORT=8080    (default: 8080)
+#   BACKEND_START_TIMEOUT=120 (seconds to wait for /health after launch)
 #   FRONTEND_PORT=5173   (default: 5173)     # only used in dev
 #   PYTHON=python3.12    (default: python3.12)
 #   DATA_DIR=""          (optional; exported for backend, if your Open WebUI honors it)
@@ -55,6 +56,7 @@ set -euo pipefail
 MODE="${MODE:-prod}"
 HOST="${HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8080}"
+BACKEND_START_TIMEOUT="${BACKEND_START_TIMEOUT:-120}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 PYTHON="${PYTHON:-python3.12}"
 DATA_DIR="${DATA_DIR:-}"
@@ -142,6 +144,8 @@ wait_for_http() {
   local name="$1" url="$2" timeout="$3"
   local started_at="$SECONDS"
 
+  require_cmd curl
+
   while (( SECONDS - started_at < timeout )); do
     if curl --fail --silent --show-error --max-time 2 "$url" >/dev/null 2>&1; then
       say "$name is ready: $url"
@@ -152,6 +156,18 @@ wait_for_http() {
 
   say "$name did not become ready within ${timeout}s: $url"
   return 1
+}
+
+wait_for_backend() {
+  local probe_host="$HOST"
+  case "$probe_host" in
+    0.0.0.0|::|"[::]") probe_host="127.0.0.1" ;;
+  esac
+  if [[ "$probe_host" == *:* && "$probe_host" != \[*\] ]]; then
+    probe_host="[$probe_host]"
+  fi
+
+  wait_for_http "Backend" "http://${probe_host}:${BACKEND_PORT}/health" "$BACKEND_START_TIMEOUT"
 }
 
 start_local_speech_services() {
@@ -534,6 +550,13 @@ start_backend() {
       launch_detached "Backend" "$BACKEND_PID" "$BACKEND_LOG" \
         env PYTHONUNBUFFERED=1 uvicorn open_webui.main:app --host "$HOST" --port "$BACKEND_PORT"
     )
+  fi
+
+  if ! wait_for_backend; then
+    say "Backend failed its readiness check. Recent log output:"
+    tail -n 120 "$BACKEND_LOG" || true
+    stop_one "backend" "$BACKEND_PID"
+    return 1
   fi
 }
 
