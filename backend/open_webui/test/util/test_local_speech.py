@@ -3,7 +3,11 @@ import wave
 
 import pytest
 
-from open_webui.utils.local_speech import concatenate_wav_bytes, split_bg_en_runs
+from open_webui.utils.local_speech import (
+    concatenate_wav_bytes,
+    normalize_supertonic_text,
+    split_bg_en_runs,
+)
 
 
 def _wav(sample: int, frames: int = 100, sample_rate: int = 16_000) -> bytes:
@@ -40,6 +44,20 @@ def test_split_bg_en_runs_separates_mixed_script_without_losing_words():
 def test_split_bg_en_runs_uses_language_agnostic_fallback_for_neutral_text():
     assert split_bg_en_runs("123 + 456 = 579") == [("na", "123 + 456 = 579")]
     assert split_bg_en_runs("   ") == []
+
+
+def test_normalize_supertonic_text_handles_bulgarian_typography():
+    assert normalize_supertonic_text("„Думи“ — „още“…") == '"Думи" - "още"...'
+
+
+def test_normalize_supertonic_text_preserves_semantics_with_ascii_fallbacks():
+    assert normalize_supertonic_text("Цена 10 €; x≤2, y≠0; 5‰ ⇒ ok") == (
+        "Цена 10 €; x<=2, y!=0; 5% => ok"
+    )
+
+
+def test_normalize_supertonic_text_removes_invisible_controls():
+    assert normalize_supertonic_text("one​two‌⁠ three\x00") == "onetwo three"
 
 
 def test_concatenate_wav_bytes_preserves_format_and_frames():

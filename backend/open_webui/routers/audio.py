@@ -40,7 +40,11 @@ from open_webui.utils.misc import strict_match_mime_type
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.headers import include_user_info_headers
-from open_webui.utils.local_speech import concatenate_wav_bytes, split_bg_en_runs
+from open_webui.utils.local_speech import (
+    concatenate_wav_bytes,
+    normalize_supertonic_text,
+    split_bg_en_runs,
+)
 from open_webui.config import (
     WHISPER_MODEL_AUTO_UPDATE,
     WHISPER_COMPUTE_TYPE,
@@ -761,6 +765,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
 
     if isinstance(payload.get("input"), str):
         payload["input"] = sanitize_tts_input(payload["input"])
+        if effective_engine == "supertonic":
+            payload["input"] = normalize_supertonic_text(payload["input"])
 
     r = None
     if effective_engine == "supertonic":
