@@ -8,6 +8,7 @@
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import { getSTTEngineLabel, getTTSEngineLabel, SUPERTONIC_VOICES } from '$lib/utils/audioEngines';
 	const dispatch = createEventDispatcher();
 
 	const i18n = getContext('i18n');
@@ -36,18 +37,11 @@
 	// Audio speed control
 	let playbackRate = 1;
 
-	const SUPERTONIC_VOICES = [
-		{ id: 'F1', name: 'Mila — female (F1)' },
-		{ id: 'F2', name: 'Elena — female (F2)' },
-		{ id: 'F3', name: 'Sofia — female (F3)' },
-		{ id: 'F4', name: 'Raya — female (F4)' },
-		{ id: 'F5', name: 'Nora — female (F5)' },
-		{ id: 'M1', name: 'Alex — male (M1)' },
-		{ id: 'M2', name: 'Boris — male (M2)' },
-		{ id: 'M3', name: 'Viktor — male (M3)' },
-		{ id: 'M4', name: 'Martin — male (M4)' },
-		{ id: 'M5', name: 'Nikola — male (M5)' }
-	];
+	$: systemSTTEngineLabel = getSTTEngineLabel($config?.audio?.stt?.engine);
+	$: systemTTSEngineLabel = getTTSEngineLabel($config?.audio?.tts?.engine);
+	$: usesSupertonic =
+		TTSEngine === 'supertonic' ||
+		(TTSEngine === '' && $config?.audio?.tts?.engine === 'supertonic');
 	const DEFAULT_SUPERTONIC_PREVIEW_TEXT =
 		'Здравей! Това е кратък гласов тест. Hello! This is a short voice preview.';
 	let supertonicPreviewText = DEFAULT_SUPERTONIC_PREVIEW_TEXT;
@@ -121,13 +115,15 @@
 				const savedVoice = $settings?.audio?.tts?.voice;
 				voice = voices.some((item) => item.id === savedVoice) ? savedVoice : (voices[0]?.id ?? '');
 			}
-		} else if (TTSEngine === 'supertonic') {
+		} else if (usesSupertonic) {
 			voices = SUPERTONIC_VOICES.map((item) => ({
 				...item,
 				localService: true
 			}));
 			if (!voices.some((item) => item.id === voice)) {
-				voice = TTSEngineConfig?.voice ?? 'M1';
+				const configuredVoice =
+					TTSEngine === 'supertonic' ? TTSEngineConfig?.voice : $config?.audio?.tts?.voice;
+				voice = voices.some((item) => item.id === configuredVoice) ? configuredVoice : 'M1';
 			}
 		} else {
 			if ($config.audio.tts.engine === '') {
@@ -299,11 +295,17 @@
 							aria-label={$i18n.t('Speech-to-Text Engine')}
 							placeholder={$i18n.t('Select an engine')}
 						>
-							<option value="">{$i18n.t('Default')}</option>
+							<option value="">{$i18n.t('System default')} — {$i18n.t(systemSTTEngineLabel)}</option
+							>
 							<option value="parakeet">{$i18n.t('Parakeet (Server)')}</option>
 							<option value="web">{$i18n.t('Web API')}</option>
 						</select>
 					</div>
+				</div>
+				<div class="mb-1 text-xs text-gray-400 dark:text-gray-500">
+					{$i18n.t(
+						'Default follows Admin Settings → Audio. Choosing another engine overrides it only for your account.'
+					)}
 				</div>
 
 				<div class=" py-0.5 flex w-full justify-between">
@@ -364,11 +366,16 @@
 						aria-label={$i18n.t('Text-to-Speech Engine')}
 						placeholder={$i18n.t('Select an engine')}
 					>
-						<option value="">{$i18n.t('Default')}</option>
+						<option value="">{$i18n.t('System default')} — {$i18n.t(systemTTSEngineLabel)}</option>
 						<option value="supertonic">{$i18n.t('Supertonic (Server)')}</option>
 						<option value="browser-kokoro">{$i18n.t('Kokoro.js (Browser)')}</option>
 					</select>
 				</div>
+			</div>
+			<div class="mb-1 text-xs text-gray-400 dark:text-gray-500">
+				{$i18n.t(
+					'Default follows Admin Settings → Audio. Choosing another engine overrides it only for your account.'
+				)}
 			</div>
 
 			{#if TTSEngine === 'browser-kokoro'}
@@ -431,7 +438,7 @@
 
 		<hr class=" border-gray-100/30 dark:border-gray-850/30" />
 
-		{#if TTSEngine === 'supertonic'}
+		{#if usesSupertonic}
 			<div class="space-y-3">
 				<div class=" mb-2.5 text-sm font-medium">{$i18n.t('Set Voice')}</div>
 				<div class="flex w-full">

@@ -21,6 +21,7 @@
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
 	import Textarea from '$lib/components/common/Textarea.svelte';
+	import { SUPERTONIC_VOICES } from '$lib/utils/audioEngines';
 
 	const i18n = getContext<Writable<i18nType>>('i18n');
 
@@ -103,8 +104,14 @@
 	let omniVoicePreviewAudio: HTMLAudioElement | null = null;
 	let omniVoicePreviewUrl = '';
 
-	// eslint-disable-next-line no-undef
-	let voices: SpeechSynthesisVoice[] = [];
+	type VoiceOption = {
+		id?: string;
+		name: string;
+		voiceURI?: string;
+		localService?: boolean;
+	};
+
+	let voices: VoiceOption[] = [];
 	let models: Awaited<ReturnType<typeof _getModels>>['models'] = [];
 
 	const titleCaseId = (value: string) =>
@@ -359,6 +366,14 @@
 	};
 
 	const setTTSDefaultsForEngine = (engine: string) => {
+		if (engine === 'supertonic') {
+			if (!SUPERTONIC_VOICES.some(({ id }) => id === TTS_VOICE)) {
+				TTS_VOICE = 'M1';
+			}
+			TTS_MODEL = 'supertonic-3';
+			return;
+		}
+
 		if (engine === 'openai') {
 			TTS_VOICE = 'alloy';
 			TTS_MODEL = 'tts-1';
@@ -370,10 +385,7 @@
 				TTS_VOICE = 'bm_fable';
 			}
 
-			if (
-				!TTS_MODEL ||
-				['tts-1', 'tts-1-hd', 'k2-fsa/OmniVoice'].includes(TTS_MODEL)
-			) {
+			if (!TTS_MODEL || ['tts-1', 'tts-1-hd', 'k2-fsa/OmniVoice'].includes(TTS_MODEL)) {
 				TTS_MODEL = 'backend/models/kokoro-v1.0.onnx';
 			}
 
@@ -442,6 +454,8 @@
 	const getModels = async () => {
 		if (TTS_ENGINE === '') {
 			models = [];
+		} else if (TTS_ENGINE === 'supertonic') {
+			models = [{ id: 'supertonic-3' }];
 		} else {
 			const res = await _getModels(
 				localStorage.token,
@@ -468,6 +482,8 @@
 					voices.sort((a, b) => a.name.localeCompare(b.name, $i18n.resolvedLanguage));
 				}
 			}, 100);
+		} else if (TTS_ENGINE === 'supertonic') {
+			voices = SUPERTONIC_VOICES.map((voice) => ({ ...voice }));
 		} else {
 			const res = await _getVoices(localStorage.token).catch((e) => {
 				toast.error(`${e}`);
@@ -690,6 +706,7 @@
 							placeholder={$i18n.t('Select an engine')}
 						>
 							<option value="">{$i18n.t('Whisper (Local)')}</option>
+							<option value="parakeet">{$i18n.t('Parakeet (Server)')}</option>
 							<option value="openai">{$i18n.t('OpenAI')}</option>
 							<option value="web">{$i18n.t('Web API')}</option>
 							<option value="deepgram">{$i18n.t('Deepgram')}</option>
@@ -697,6 +714,11 @@
 							<option value="mistral">{$i18n.t('MistralAI')}</option>
 						</select>
 					</div>
+				</div>
+				<div class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+					{$i18n.t(
+						'This is the system default. Users can keep it or choose a personal override in Settings → Audio.'
+					)}
 				</div>
 
 				{#if STT_ENGINE === 'openai'}
@@ -888,6 +910,12 @@
 							)}
 						</div>
 					</div>
+				{:else if STT_ENGINE === 'parakeet'}
+					<div class="text-xs text-gray-400 dark:text-gray-500">
+						{$i18n.t(
+							'Uses the resident Parakeet service. Language is detected automatically unless a user supplies a language override.'
+						)}
+					</div>
 				{:else if STT_ENGINE === ''}
 					<div>
 						<div class=" mb-1.5 text-xs font-medium">{$i18n.t('STT Model')}</div>
@@ -967,6 +995,7 @@
 							}}
 						>
 							<option value="">{$i18n.t('Web API')}</option>
+							<option value="supertonic">{$i18n.t('Supertonic (Server)')}</option>
 							<option value="transformers">{$i18n.t('Transformers')} ({$i18n.t('Local')})</option>
 							<option value="openai">{$i18n.t('OpenAI')}</option>
 							<option value="kokoro_onnx">{$i18n.t('Kokoro ONNX')} ({$i18n.t('Local')})</option>
@@ -975,6 +1004,11 @@
 							<option value="azure">{$i18n.t('Azure AI Speech')}</option>
 						</select>
 					</div>
+				</div>
+				<div class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+					{$i18n.t(
+						'This is the system default. Users can keep it or choose a personal override in Settings → Audio.'
+					)}
 				</div>
 
 				{#if TTS_ENGINE === 'openai'}
@@ -1052,6 +1086,24 @@
 										{/each}
 									</select>
 								</div>
+							</div>
+						</div>
+					{:else if TTS_ENGINE === 'supertonic'}
+						<div>
+							<div class="mb-1.5 text-xs font-medium">{$i18n.t('TTS Voice')}</div>
+							<select
+								class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+								bind:value={TTS_VOICE}
+								aria-label={$i18n.t('TTS Voice')}
+							>
+								{#each SUPERTONIC_VOICES as voice}
+									<option value={voice.id}>{voice.name}</option>
+								{/each}
+							</select>
+							<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+								{$i18n.t(
+									'Uses the resident Supertonic service. Users can preview and override this voice in Settings → Audio.'
+								)}
 							</div>
 						</div>
 					{:else if TTS_ENGINE === 'transformers'}
@@ -1434,7 +1486,9 @@
 								<Textarea
 									className="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 font-mono dark:text-gray-300 dark:bg-gray-850 outline-hidden"
 									bind:value={omniVoiceExtraParams}
-									placeholder={$i18n.t('Optional JSON object for OmniVoice parameters not exposed above')}
+									placeholder={$i18n.t(
+										'Optional JSON object for OmniVoice parameters not exposed above'
+									)}
 									minSize={120}
 								/>
 								<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">

@@ -84,10 +84,19 @@ KOKORO_DEFAULT_SPEED = 1.0
 SUPERTONIC_DEFAULT_API_URL = "http://127.0.0.1:7788/v1/audio/speech"
 SUPERTONIC_DEFAULT_MODEL = "supertonic-3"
 SUPERTONIC_DEFAULT_VOICE = "M1"
-SUPERTONIC_VOICES = tuple(
-    [f"F{index}" for index in range(1, 6)]
-    + [f"M{index}" for index in range(1, 6)]
-)
+SUPERTONIC_VOICE_NAMES = {
+    "F1": "Mila — female (F1)",
+    "F2": "Elena — female (F2)",
+    "F3": "Sofia — female (F3)",
+    "F4": "Raya — female (F4)",
+    "F5": "Nora — female (F5)",
+    "M1": "Alex — male (M1)",
+    "M2": "Boris — male (M2)",
+    "M3": "Viktor — male (M3)",
+    "M4": "Martin — male (M4)",
+    "M5": "Nikola — male (M5)",
+}
+SUPERTONIC_VOICES = tuple(SUPERTONIC_VOICE_NAMES)
 PARAKEET_DEFAULT_API_URL = "http://127.0.0.1:18084/v1/transcribe"
 OMNIVOICE_DEFAULT_MODEL = "k2-fsa/OmniVoice"
 OMNIVOICE_DEFAULT_SAMPLE_RATE = 24000
@@ -1953,6 +1962,10 @@ def get_available_models(request: Request) -> list[dict]:
     elif request.app.state.config.TTS_ENGINE == "omnivoice":
         configured_model = request.app.state.config.TTS_MODEL or OMNIVOICE_DEFAULT_MODEL
         available_models = [{"id": configured_model}]
+    elif request.app.state.config.TTS_ENGINE == "supertonic":
+        available_models = [
+            {"id": os.getenv("AUDIO_TTS_SUPERTONIC_MODEL", SUPERTONIC_DEFAULT_MODEL)}
+        ]
     return available_models
 
 
@@ -2067,6 +2080,8 @@ def get_available_voices(request) -> dict:
             voice_id: str(voice_config.get("name") or voice_id)
             for voice_id, voice_config in get_omnivoice_voice_registry(request).items()
         }
+    elif request.app.state.config.TTS_ENGINE == "supertonic":
+        available_voices = dict(SUPERTONIC_VOICE_NAMES)
 
     return available_voices
 
